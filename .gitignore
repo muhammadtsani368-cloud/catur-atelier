@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Nuxt build & cache outputs
+.nuxt/
+.output/
+.nitro/
+.cache/
+dist/
+
+# Environment & secrets (NEVER commit credentials)
+.env
+.env.*
+!.env.example
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.log

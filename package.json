@@ -1,0 +1,28 @@
+{
+  "name": "grandmaster-atelier",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "db:init": "node scripts/init-tidb.mjs",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "chess.js": "^1.4.0",
+    "gsap": "^3.15.1",
+    "lucide-vue-next": "^0.511.0",
+    "mysql2": "^3.24.6",
+    "nuxt": "^4.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.11",
+    "@types/node": "^22.15.0",
+    "tailwindcss": "^4.1.11",
+    "typescript": "^5.8.3",
+    "vue-tsc": "^2.2.10"
+  }
+}

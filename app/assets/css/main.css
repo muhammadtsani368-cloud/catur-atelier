@@ -1,0 +1,180 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-serif: "Playfair Display", Georgia, Cambria, "Times New Roman", serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-alabaster: #F7F5F0;
+  --color-obsidian: #121214;
+  --color-obsidian-card: #19191D;
+  --color-charcoal: #202321;
+  --color-slate-muted: #52525B;
+  --color-sage: #718675;
+  --color-sage-soft: #738578;
+  --color-terracotta: #B85D43;
+  --color-cream: #EDEAE0;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background-color: #F7F5F0;
+    color: #202321;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html.dark {
+    background-color: #121214;
+    color: #F4F3EE;
+  }
+
+  h1, h2, h3, .font-editorial {
+    font-family: var(--font-serif);
+  }
+}
+
+/* Subtle archival paper grain & warm ambient atmosphere (3-4% opacity) */
+.atelier-atmosphere {
+  position: relative;
+  isolation: isolate;
+}
+
+.atelier-atmosphere::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image:
+    radial-gradient(62% 46% at 86% 6%, rgba(113, 134, 117, 0.055), transparent 70%),
+    radial-gradient(48% 42% at 10% 18%, rgba(194, 109, 83, 0.035), transparent 72%);
+}
+
+html.dark .atelier-atmosphere::before {
+  background-image:
+    radial-gradient(58% 44% at 86% 6%, rgba(113, 134, 117, 0.075), transparent 72%),
+    radial-gradient(45% 40% at 10% 20%, rgba(194, 109, 83, 0.04), transparent 74%);
+}
+
+.atelier-atmosphere::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.036;
+  background-repeat: repeat;
+  background-size: 180px 180px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)' opacity='0.85'/%3E%3C/svg%3E");
+}
+
+html.dark .atelier-atmosphere::after {
+  opacity: 0.042;
+}
+
+/* Tactile elevation surfaces with subtle inner top highlight */
+.surface-tactile-hero {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 2px rgba(32, 35, 33, 0.05),
+    0 14px 36px -18px rgba(32, 35, 33, 0.13),
+    0 28px 60px -30px rgba(32, 35, 33, 0.1);
+}
+
+html.dark .surface-tactile-hero {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.065),
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 18px 44px -20px rgba(0, 0, 0, 0.65);
+}
+
+.surface-tactile-card {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 1px 2px rgba(32, 35, 33, 0.045),
+    0 6px 18px -14px rgba(32, 35, 33, 0.12);
+}
+
+html.dark .surface-tactile-card {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.surface-tactile-card:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 2px 6px rgba(32, 35, 33, 0.05),
+    0 18px 34px -16px rgba(32, 35, 33, 0.16);
+}
+
+html.dark .surface-tactile-card:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 18px 36px -14px rgba(0, 0, 0, 0.62);
+}
+
+.surface-tactile-card-selected {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 0 0 2px rgba(113, 134, 117, 0.28),
+    0 16px 34px -14px rgba(32, 35, 33, 0.18);
+}
+
+html.dark .surface-tactile-card-selected {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 2px rgba(139, 168, 147, 0.32),
+    0 18px 38px -14px rgba(0, 0, 0, 0.68);
+}
+
+/* Tactile animations */
+@keyframes board-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
+.animate-board-shake {
+  animation: board-shake 0.34s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes subtle-pulse {
+  0%, 100% { box-shadow: inset 0 0 0 3px rgba(184, 93, 67, 0.85); }
+  50% { box-shadow: inset 0 0 0 5px rgba(184, 93, 67, 0.45); }
+}
+
+.animate-hint-ring {
+  animation: subtle-pulse 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-board-shake,
+  .animate-hint-ring {
+    animation: none;
+  }
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(115, 133, 120, 0.3);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(115, 133, 120, 0.55);
+}
