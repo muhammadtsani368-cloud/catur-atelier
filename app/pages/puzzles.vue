@@ -14,6 +14,7 @@ import {
   Play,
   RotateCcw,
   SlidersHorizontal,
+  Sparkles,
   Swords,
   Target,
   Trophy,
@@ -22,14 +23,19 @@ import {
 } from 'lucide-vue-next'
 import {
   BATTLE_RIVALS,
-  getDailyPuzzleForToday,
-  PUZZLE_BANK,
   PUZZLE_THEMES,
   type BattleRivalProfile,
   type PuzzleModeKey,
   type PuzzleThemeKey,
   type TacticalPuzzleItem
 } from '~/utils/puzzleBank'
+import {
+  generateDailyAutoPuzzle,
+  generateUniquePuzzle,
+  loadSeenPuzzleKeys,
+  normalizeFenKey,
+  saveSeenPuzzleKeys
+} from '~/utils/puzzleGenerator'
 import {
   playCheckSound,
   playErrorSound,
@@ -46,13 +52,19 @@ interface StoredPuzzleStats {
   bestRushScore: number
   dailyCompletedDate: string | null
   dailyStreak: number
-  solvedIds: string[]
+  totalSolvedCount: number
+  sequenceCounter: number
+}
+
+interface SessionPuzzleEntry {
+  puzzle: TacticalPuzzleItem
+  status: 'pending' | 'ok' | 'fail'
 }
 
 const { recordMoveResult, recordMistake, mistakeCount } = useChessProgress()
 const { isMuted } = useTheme()
 
-// Mode state (Default: "Tidak Terbatas" matching the Architectural Editorial spec)
+// Mode state (Default: "Tidak Terbatas")
 const activeMode = ref<PuzzleModeKey>('unlimited')
 
 const modeTabs: Array<{ key: PuzzleModeKey; label: string; icon: Component }> = [
@@ -63,13 +75,16 @@ const modeTabs: Array<{ key: PuzzleModeKey; label: string; icon: Component }> = 
   { key: 'custom', label: 'Teka-Teki Custom', icon: SlidersHorizontal }
 ]
 
-// Persistent Puzzle Rating & Records
+// Persistent Puzzle Rating, Sequence & Anti-Repeat Memory
 const puzzleRating = ref(1420)
 const lastRatingDelta = ref(14)
 const bestRushScore = ref(0)
 const dailyCompletedDate = ref<string | null>(null)
 const dailyStreak = ref(0)
-const solvedIds = ref<string[]>([])
+const totalSolvedCount = ref(0)
+const sequenceCounter = ref(1)
+const seenPuzzleKeys = new Set<string>()
+const totalSeenCount = ref(0)
 
 function getTodayIso(): string {
   const d = new Date()
@@ -100,7 +115,8 @@ function persistPuzzleStats() {
       bestRushScore: bestRushScore.value,
       dailyCompletedDate: dailyCompletedDate.value,
       dailyStreak: dailyStreak.value,
-      solvedIds: solvedIds.value
+      totalSolvedCount: totalSolvedCount.value,
+      sequenceCounter: sequenceCounter.value
     }
     localStorage.setItem(PUZZLE_STATS_KEY, JSON.stringify(payload))
   } catch {
@@ -110,6 +126,10 @@ function persistPuzzleStats() {
 
 function hydratePuzzleStats() {
   if (typeof window === 'undefined') return
+  const loadedSeen = loadSeenPuzzleKeys()
+  for (const key of loadedSeen) seenPuzzleKeys.add(key)
+  totalSeenCount.value = seenPuzzleKeys.size
+
   try {
     const raw = localStorage.getItem(PUZZLE_STATS_KEY)
     if (!raw) return
@@ -125,9 +145,23 @@ function hydratePuzzleStats() {
       dailyCompletedDate.value = parsed.dailyCompletedDate
     }
     if (typeof parsed.dailyStreak === 'number') dailyStreak.value = parsed.dailyStreak
-    if (Array.isArray(parsed.solvedIds)) solvedIds.value = parsed.solvedIds
+    if (typeof parsed.totalSolvedCount === 'number') {
+      totalSolvedCount.value = parsed.totalSolvedCount
+    }
+    if (typeof parsed.sequenceCounter === 'number' && parsed.sequenceCounter >= 1) {
+      sequenceCounter.value = parsed.sequenceCounter
+    }
   } catch {
     // Keep clean defaults
+  }
+}
+
+function markPuzzleAsSeen(puzzle: TacticalPuzzleItem) {
+  const key = normalizeFenKey(puzzle.fen)
+  if (!seenPuzzleKeys.has(key)) {
+    seenPuzzleKeys.add(key)
+    totalSeenCount.value = seenPuzzleKeys.size
+    saveSeenPuzzleKeys(seenPuzzleKeys)
   }
 }
 
@@ -150,7 +184,6 @@ function resetCustomFilters() {
   customThemes.value = ['Skakmat', 'Garpu', 'Pin', 'Pengorbanan', 'Babak Akhir']
   customMinElo.value = 850
   customMaxElo.value = 2150
-  activeIndex.value = 0
 }
 
 // Rush Mode State (Teka-Teki Gegas: 3 minutes, 3 lives)
@@ -191,46 +224,28 @@ function stopModeTimer() {
   }
 }
 
-// Session Stats (Unlimited / Custom)
+// Session Stats & Auto-Generated Session Trail (Unlimited / Custom)
 const sessionStreak = ref(0)
 const sessionSolved = ref(0)
 const sessionAttempts = ref(0)
-const sessionHistory = ref<Array<{ number: number; ok: boolean }>>([])
+const sessionTrail = ref<SessionPuzzleEntry[]>([])
+const activeTrailIdx = ref(0)
 
 const sessionAccuracy = computed(() => {
   if (sessionAttempts.value === 0) return 100
   return Math.round((sessionSolved.value / sessionAttempts.value) * 100)
 })
 
-// Active Puzzle Pool based on activeMode
-const dailyPuzzle = computed<TacticalPuzzleItem>(() => getDailyPuzzleForToday())
-
-const activePool = computed<TacticalPuzzleItem[]>(() => {
-  if (activeMode.value === 'daily') {
-    return [dailyPuzzle.value]
-  }
-  if (activeMode.value === 'custom') {
-    const low = Math.min(customMinElo.value, customMaxElo.value)
-    const high = Math.max(customMinElo.value, customMaxElo.value)
-    const filtered = PUZZLE_BANK.filter(
-      (p) => customThemes.value.includes(p.theme) && p.rating >= low && p.rating <= high
-    )
-    return filtered.length > 0 ? filtered : PUZZLE_BANK
-  }
-  if (activeMode.value === 'rush' || activeMode.value === 'battle') {
-    // Progressive difficulty order (easiest to hardest)
-    return [...PUZZLE_BANK].sort((a, b) => a.rating - b.rating)
-  }
-  // Unlimited: full bank sorted nicely
-  return PUZZLE_BANK
+// SSR-safe deterministic initial puzzle so hydration never mismatches
+const initialSsrPuzzle = generateUniquePuzzle({
+  seed: 20261124,
+  themes: ['Garpu'],
+  minElo: 1200,
+  maxElo: 1550,
+  sequenceNumber: 1
 })
 
-// Start on a clean fork/tactical puzzle in Unlimited mode by default (index 10 = #11 or #3)
-const activeIndex = ref(2)
-
-const currentPuzzle = computed<TacticalPuzzleItem>(
-  () => activePool.value[activeIndex.value] ?? activePool.value[0] ?? PUZZLE_BANK[0]!
-)
+const currentPuzzle = ref<TacticalPuzzleItem>(initialSsrPuzzle)
 
 // Live Board State
 const boardFen = ref(currentPuzzle.value.fen)
@@ -255,12 +270,12 @@ const isBoardLocked = computed(() => {
   return false
 })
 
-function loadCurrentPuzzle() {
+function applyPuzzleToBoard(p: TacticalPuzzleItem) {
   if (autoAdvanceTimer) {
     clearTimeout(autoAdvanceTimer)
     autoAdvanceTimer = null
   }
-  const p = currentPuzzle.value
+  currentPuzzle.value = p
   boardFen.value = p.fen
   lastMove.value = null
   solved.value = false
@@ -274,6 +289,82 @@ function loadCurrentPuzzle() {
   feedbackText.value = p.prompt
 }
 
+function loadCurrentPuzzle() {
+  applyPuzzleToBoard(currentPuzzle.value)
+}
+
+function spawnNextAutoPuzzle(mode: PuzzleModeKey = activeMode.value, recordInTrail = true) {
+  let generated: TacticalPuzzleItem
+
+  if (mode === 'daily') {
+    generated = generateDailyAutoPuzzle()
+  } else {
+    const seq = sequenceCounter.value
+    sequenceCounter.value += 1
+
+    if (mode === 'custom') {
+      generated = generateUniquePuzzle({
+        themes: customThemes.value,
+        minElo: customMinElo.value,
+        maxElo: customMaxElo.value,
+        seenKeys: seenPuzzleKeys,
+        sequenceNumber: seq
+      })
+    } else if (mode === 'rush') {
+      const targetMin = Math.min(1800, 850 + rushScore.value * 70)
+      const targetMax = Math.min(2150, 1150 + rushScore.value * 95)
+      generated = generateUniquePuzzle({
+        minElo: targetMin,
+        maxElo: targetMax,
+        seenKeys: seenPuzzleKeys,
+        sequenceNumber: seq
+      })
+    } else if (mode === 'battle') {
+      const rivalElo = selectedRival.value.elo
+      generated = generateUniquePuzzle({
+        minElo: Math.max(850, rivalElo - 300),
+        maxElo: Math.min(2150, rivalElo + 250),
+        seenKeys: seenPuzzleKeys,
+        sequenceNumber: seq
+      })
+    } else {
+      // Adaptive Unlimited Mode calibrated to live puzzleRating
+      generated = generateUniquePuzzle({
+        minElo: Math.max(850, puzzleRating.value - 260),
+        maxElo: Math.min(2150, puzzleRating.value + 260),
+        seenKeys: seenPuzzleKeys,
+        sequenceNumber: seq
+      })
+    }
+
+    markPuzzleAsSeen(generated)
+    persistPuzzleStats()
+  }
+
+  if (recordInTrail && (mode === 'unlimited' || mode === 'custom')) {
+    const nextTrail = [...sessionTrail.value, { puzzle: generated, status: 'pending' as const }].slice(-18)
+    sessionTrail.value = nextTrail
+    activeTrailIdx.value = nextTrail.length - 1
+  }
+
+  applyPuzzleToBoard(generated)
+}
+
+function selectTrailEntry(idx: number) {
+  const entry = sessionTrail.value[idx]
+  if (!entry) return
+  activeTrailIdx.value = idx
+  applyPuzzleToBoard(entry.puzzle)
+}
+
+function updateActiveTrailStatus(status: 'ok' | 'fail') {
+  const entry = sessionTrail.value[activeTrailIdx.value]
+  if (!entry || entry.puzzle.id !== currentPuzzle.value.id) return
+  if (entry.status === 'pending') {
+    entry.status = status
+  }
+}
+
 function switchMode(mode: PuzzleModeKey) {
   if (activeMode.value === mode) return
   stopModeTimer()
@@ -282,23 +373,19 @@ function switchMode(mode: PuzzleModeKey) {
   battleActive.value = false
   battleFinished.value = false
   activeMode.value = mode
-  activeIndex.value = mode === 'unlimited' ? 2 : 0
-  loadCurrentPuzzle()
+  if (mode === 'unlimited' || mode === 'custom') {
+    sessionTrail.value = []
+    activeTrailIdx.value = 0
+  }
+  spawnNextAutoPuzzle(mode, mode === 'unlimited' || mode === 'custom')
 }
 
 function nextPuzzle() {
-  if (activePool.value.length <= 1) {
+  if (activeMode.value === 'daily') {
     loadCurrentPuzzle()
     return
   }
-  activeIndex.value = (activeIndex.value + 1) % activePool.value.length
-  loadCurrentPuzzle()
-}
-
-function selectPuzzleByIndex(idx: number) {
-  if (idx < 0 || idx >= activePool.value.length) return
-  activeIndex.value = idx
-  loadCurrentPuzzle()
+  spawnNextAutoPuzzle(activeMode.value, activeMode.value === 'unlimited' || activeMode.value === 'custom')
 }
 
 function formatClock(seconds: number): string {
@@ -316,8 +403,7 @@ function startRushRun() {
   rushLives.value = 3
   rushScore.value = 0
   rushHistory.value = []
-  activeIndex.value = 0
-  loadCurrentPuzzle()
+  spawnNextAutoPuzzle('rush', false)
 
   modeTimer = setInterval(() => {
     rushTimeLeft.value = Math.max(0, rushTimeLeft.value - 1)
@@ -347,8 +433,7 @@ function startBattleRun() {
   battleUserStrikes.value = 0
   battleRivalScore.value = 0
   rivalProgressAccum = 0
-  activeIndex.value = 0
-  loadCurrentPuzzle()
+  spawnNextAutoPuzzle('battle', false)
 
   modeTimer = setInterval(() => {
     battleTimeLeft.value = Math.max(0, battleTimeLeft.value - 1)
@@ -356,7 +441,6 @@ function startBattleRun() {
     const pace = selectedRival.value.avgSecondsPerSolve
     if (rivalProgressAccum >= pace) {
       rivalProgressAccum = 0
-      // Small realistic variance so the race feels alive
       if (Math.random() < 0.85) {
         battleRivalScore.value += 1
       }
@@ -428,9 +512,7 @@ function handlePuzzleMove(payload: { from: Square; to: Square; promotion?: Piece
     feedbackTone.value = 'success'
     feedbackText.value = p.explanation
 
-    if (!solvedIds.value.includes(p.id)) {
-      solvedIds.value = [...solvedIds.value, p.id]
-    }
+    totalSolvedCount.value += 1
     recordMoveResult(p.id, true)
 
     if (played.san.includes('#') || played.san.includes('+')) playCheckSound(isMuted.value)
@@ -450,7 +532,7 @@ function handlePuzzleMove(payload: { from: Square; to: Square; promotion?: Piece
       sessionAttempts.value += 1
       sessionSolved.value += 1
       sessionStreak.value += 1
-      sessionHistory.value = [{ number: p.number, ok: !hadMistakeOnCurrent.value }, ...sessionHistory.value].slice(0, 12)
+      updateActiveTrailStatus(hadMistakeOnCurrent.value ? 'fail' : 'ok')
       if (!hadMistakeOnCurrent.value && activeMode.value === 'unlimited') {
         updateRatedScore(true, p.rating)
       } else {
@@ -492,12 +574,12 @@ function handlePuzzleMove(payload: { from: Square; to: Square; promotion?: Piece
     if (activeMode.value === 'unlimited') {
       sessionAttempts.value += 1
       sessionStreak.value = 0
-      sessionHistory.value = [{ number: p.number, ok: false }, ...sessionHistory.value].slice(0, 12)
+      updateActiveTrailStatus('fail')
       updateRatedScore(false, p.rating)
     } else if (activeMode.value === 'custom') {
       sessionAttempts.value += 1
       sessionStreak.value = 0
-      sessionHistory.value = [{ number: p.number, ok: false }, ...sessionHistory.value].slice(0, 12)
+      updateActiveTrailStatus('fail')
     } else if (activeMode.value === 'rush') {
       rushLives.value = Math.max(0, rushLives.value - 1)
       rushHistory.value = [...rushHistory.value, 'fail']
@@ -523,14 +605,14 @@ function handlePuzzleMove(payload: { from: Square; to: Square; promotion?: Piece
 
 watch([customThemes, customMinElo, customMaxElo], () => {
   if (activeMode.value === 'custom') {
-    activeIndex.value = 0
-    loadCurrentPuzzle()
+    spawnNextAutoPuzzle('custom', true)
   }
 })
 
 onMounted(() => {
   hydratePuzzleStats()
-  loadCurrentPuzzle()
+  // Always generate a fresh unseen puzzle on client mount so reloads never repeat!
+  spawnNextAutoPuzzle(activeMode.value, true)
 })
 
 onBeforeUnmount(() => {
@@ -545,12 +627,20 @@ onBeforeUnmount(() => {
     <!-- Editorial Header & Live Puzzle Rating Badge -->
     <section class="flex flex-col md:flex-row md:items-end justify-between gap-4">
       <div class="space-y-1">
-        <span
-          class="inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.16em] font-semibold text-[#526857] dark:text-[#9DB5A1]"
-        >
-          <span class="w-1.5 h-1.5 rounded-full bg-[#526857] dark:bg-[#9DB5A1]" aria-hidden="true" />
-          <span>STUDIO TAKTIK &amp; KETAJAMAN</span>
-        </span>
+        <div class="flex flex-wrap items-center gap-2">
+          <span
+            class="inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.16em] font-semibold text-[#526857] dark:text-[#9DB5A1]"
+          >
+            <span class="w-1.5 h-1.5 rounded-full bg-[#526857] dark:bg-[#9DB5A1]" aria-hidden="true" />
+            <span>STUDIO TAKTIK &amp; KETAJAMAN</span>
+          </span>
+          <span
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-[0.1em] font-semibold bg-[#526857]/12 text-[#3B5240] dark:text-[#A4CBB3] border border-[#526857]/25"
+          >
+            <Sparkles class="w-3 h-3" />
+            <span>Auto-Generate · Anti-Ulang</span>
+          </span>
+        </div>
         <h1
           class="font-serif text-3xl sm:text-4xl font-semibold tracking-[-0.02em] text-[#202321] dark:text-[#F4F3EE]"
         >
@@ -621,11 +711,7 @@ onBeforeUnmount(() => {
           <component
             :is="tab.icon"
             class="w-3.5 h-3.5 shrink-0"
-            :class="
-              tab.key === 'rush' && activeMode !== 'rush'
-                ? 'text-[#C59B46]'
-                : ''
-            "
+            :class="tab.key === 'rush' && activeMode !== 'rush' ? 'text-[#C59B46]' : ''"
           />
           <span>{{ tab.label }}</span>
         </button>
@@ -691,14 +777,13 @@ onBeforeUnmount(() => {
             <div
               class="max-w-xs w-full rounded-2xl border border-white/15 bg-[#1B1D1B] text-[#F7F5F0] p-6 space-y-4 shadow-2xl"
             >
-              <!-- Rush Overlay -->
               <template v-if="activeMode === 'rush'">
                 <div class="w-11 h-11 rounded-2xl bg-[#C59B46]/20 border border-[#C59B46]/40 text-[#E5C170] flex items-center justify-center mx-auto">
                   <Zap class="w-5 h-5" />
                 </div>
                 <div class="space-y-1">
                   <span class="font-mono text-[10px] uppercase tracking-[0.14em] text-[#E5C170]">
-                    {{ rushFinished ? 'SESI GEGAS SELESAI' : 'MODE KECEPATAN · 3 MENIT' }}
+                    {{ rushFinished ? 'SESI GEGAS SELESAI' : 'AUTO-GENERATE · 3 MENIT' }}
                   </span>
                   <h3 class="font-serif text-2xl font-semibold">
                     {{ rushFinished ? `Skor Anda: ${rushScore}` : 'Teka-Teki Gegas' }}
@@ -707,7 +792,7 @@ onBeforeUnmount(() => {
                     {{
                       rushFinished
                         ? `Rekor terbaik Anda saat ini ${bestRushScore} soal benar.`
-                        : 'Selesaikan teka-teki sebanyak mungkin dalam 3 menit. Hati-hati, 3 kesalahan langsung mengakhiri sesi.'
+                        : 'Soal baru dibuat otomatis tanpa pernah mengulang! Selesaikan sebanyak mungkin dalam 3 menit (maksimal 3 salah).'
                     }}
                   </p>
                 </div>
@@ -721,7 +806,6 @@ onBeforeUnmount(() => {
                 </button>
               </template>
 
-              <!-- Battle Overlay -->
               <template v-else>
                 <div class="w-11 h-11 rounded-2xl bg-[#526857]/30 border border-[#718675]/50 text-[#A4CBB3] flex items-center justify-center mx-auto">
                   <Swords class="w-5 h-5" />
@@ -751,7 +835,7 @@ onBeforeUnmount(() => {
                         ? battleOutcome === 'win'
                           ? 'Insting taktis Anda lebih cepat dan tajam dari lawan!'
                           : 'Tanding ulang atau pilih rival lain di panel kanan.'
-                        : 'Adu kecepatan memecahkan teka-teki selama 3 menit. Maksimal 3 kesalahan.'
+                        : 'Adu kecepatan memecahkan soal otomatis yang selalu baru selama 3 menit.'
                     }}
                   </p>
                 </div>
@@ -796,7 +880,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <!-- Soal Berikutnya -> (Primary Obsidian Pill) -->
+          <!-- Soal Berikutnya -> (Primary Obsidian Pill: always auto-generates a new unseen puzzle!) -->
           <button
             type="button"
             class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-semibold bg-[#141416] text-[#F7F5F0] dark:bg-[#EDEAE0] dark:text-[#141416] hover:opacity-92 disabled:opacity-45 active:scale-[0.98] transition shadow-sm cursor-pointer"
@@ -821,7 +905,7 @@ onBeforeUnmount(() => {
           <div class="flex items-center justify-between gap-2">
             <div>
               <span class="font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400 block">
-                EDISI HARIAN
+                EDISI HARIAN OTOMATIS
               </span>
               <p class="font-serif text-lg font-semibold text-[#202321] dark:text-zinc-100 capitalize">
                 {{ todayFormattedId }}
@@ -877,7 +961,7 @@ onBeforeUnmount(() => {
               TELEMETRI SESI TIDAK TERBATAS
             </span>
             <span class="font-mono text-[11px] font-semibold text-[#526857] dark:text-[#9DB5A1]">
-              {{ solvedIds.length }} / {{ PUZZLE_BANK.length }} Tuntas
+              {{ totalSeenCount }} Soal Unik
             </span>
           </div>
 
@@ -895,29 +979,16 @@ onBeforeUnmount(() => {
               </span>
             </div>
             <div class="rounded-xl border border-[#E4DFD5] dark:border-zinc-800 bg-[#F7F5F0] dark:bg-zinc-900 p-3">
-              <span class="font-mono text-[9px] uppercase tracking-wider text-zinc-500 block">Selesai</span>
+              <span class="font-mono text-[9px] uppercase tracking-wider text-zinc-500 block">Tuntas</span>
               <span class="font-serif text-xl font-semibold text-[#202321] dark:text-zinc-100">
-                {{ sessionSolved }}
+                {{ totalSolvedCount }}
               </span>
             </div>
           </div>
 
-          <!-- Recent Result Strip -->
-          <div v-if="sessionHistory.length > 0" class="flex items-center gap-1.5 flex-wrap pt-0.5">
-            <span class="font-mono text-[10px] uppercase tracking-wider text-zinc-500 mr-1">Riwayat:</span>
-            <span
-              v-for="(item, idx) in sessionHistory"
-              :key="idx"
-              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold border"
-              :class="
-                item.ok
-                  ? 'bg-[#526857]/12 text-[#3B5240] border-[#526857]/30 dark:text-[#A4CBB3]'
-                  : 'bg-[#B85D43]/12 text-[#9B4830] border-[#B85D43]/30 dark:text-[#F0AE98]'
-              "
-            >
-              #{{ item.number }} {{ item.ok ? '✓' : '✕' }}
-            </span>
-          </div>
+          <p class="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+            Tingkat kesulitan otomatis menyesuaikan rating Anda ({{ Math.max(850, puzzleRating - 260) }}–{{ Math.min(2150, puzzleRating + 260) }} ELO) dan setiap posisi dijamin baru.
+          </p>
         </div>
 
         <!-- C. Teka-Teki Gegas (Puzzle Rush) -->
@@ -1000,7 +1071,6 @@ onBeforeUnmount(() => {
             </span>
           </div>
 
-          <!-- Rival Selector (when idle) -->
           <div v-if="!battleActive" class="space-y-1.5">
             <span class="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 block">
               Pilih Lawan Duel:
@@ -1024,7 +1094,6 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <!-- Live Head-to-Head Scoreboard -->
           <div class="rounded-xl border border-[#E4DFD5] dark:border-zinc-800 bg-[#F7F5F0] dark:bg-zinc-900 p-3.5 space-y-2.5">
             <div class="flex items-center justify-between text-xs font-semibold">
               <span class="text-[#526857] dark:text-[#9DB5A1]">Anda ({{ battleUserScore }})</span>
@@ -1058,7 +1127,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <!-- E. Teka-Teki Custom (Filter Studio) -->
+        <!-- E. Teka-Teki Custom (Filter Studio with Infinite Auto-Generation) -->
         <div
           v-else
           class="surface-tactile-card rounded-2xl border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] p-5 space-y-4"
@@ -1068,7 +1137,7 @@ onBeforeUnmount(() => {
               STUDIO FILTER CUSTOM
             </span>
             <span class="font-mono text-[11px] font-semibold text-[#526857] dark:text-[#9DB5A1]">
-              {{ activePool.length }} soal cocok
+              ∞ Auto-Generate
             </span>
           </div>
 
@@ -1165,7 +1234,7 @@ onBeforeUnmount(() => {
             </span>
 
             <span class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
-              {{ activeIndex + 1 }} / {{ activePool.length }}
+              Soal #{{ currentPuzzle.number }}
             </span>
           </div>
 
@@ -1195,35 +1264,46 @@ onBeforeUnmount(() => {
           </NuxtLink>
         </div>
 
-        <!-- 3. COMPACT PUZZLE SELECTOR STRIP (Unlimited & Custom) -->
+        <!-- 3. DYNAMIC SESSION TRAIL (Generated Puzzles in Current Session) -->
         <div
-          v-if="activeMode === 'unlimited' || activeMode === 'custom'"
+          v-if="(activeMode === 'unlimited' || activeMode === 'custom') && sessionTrail.length > 0"
           class="rounded-2xl border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] p-4 space-y-2.5"
         >
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between gap-2">
             <span class="font-mono text-[10px] uppercase tracking-[0.14em] font-semibold text-zinc-500 dark:text-zinc-400">
-              DAFTAR SOAL ({{ activePool.length }})
+              JEJAK SOAL SESI INI
             </span>
-            <span class="font-mono text-[10px] text-zinc-500">Klik nomor untuk lompat</span>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-[#526857] dark:text-[#9DB5A1] hover:underline cursor-pointer"
+              @click="nextPuzzle"
+            >
+              <Sparkles class="w-3 h-3" />
+              <span>Generate Soal Baru</span>
+            </button>
           </div>
 
           <div class="flex flex-wrap gap-1.5">
             <button
-              v-for="(item, idx) in activePool"
-              :key="item.id"
+              v-for="(entry, idx) in sessionTrail"
+              :key="entry.puzzle.id"
               type="button"
-              class="w-8 h-8 rounded-lg font-mono text-[11px] font-semibold border transition cursor-pointer"
+              class="px-2.5 h-8 rounded-lg font-mono text-[11px] font-semibold border transition cursor-pointer inline-flex items-center gap-1"
               :class="
-                idx === activeIndex
+                idx === activeTrailIdx
                   ? 'bg-[#141416] text-white border-[#141416] dark:bg-[#EDEAE0] dark:text-[#141416] ring-2 ring-[#C59B46]/60'
-                  : solvedIds.includes(item.id)
-                    ? 'bg-[#526857]/15 text-[#3B5240] dark:text-[#A4CBB3] border-[#526857]/35 hover:border-[#526857]'
-                    : 'bg-[#F7F5F0] dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-[#E4DFD5] dark:border-zinc-800 hover:border-[#718675]'
+                  : entry.status === 'ok'
+                    ? 'bg-[#526857]/15 text-[#3B5240] dark:text-[#A4CBB3] border-[#526857]/35'
+                    : entry.status === 'fail'
+                      ? 'bg-[#B85D43]/15 text-[#9B4830] dark:text-[#F0AE98] border-[#B85D43]/35'
+                      : 'bg-[#F7F5F0] dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-[#E4DFD5] dark:border-zinc-800 hover:border-[#718675]'
               "
-              :title="`Soal #${item.number}: ${item.title} (${item.rating} ELO)`"
-              @click="selectPuzzleByIndex(idx)"
+              :title="`Soal #${entry.puzzle.number}: ${entry.puzzle.title} (${entry.puzzle.rating} ELO)`"
+              @click="selectTrailEntry(idx)"
             >
-              {{ item.number }}
+              <span>#{{ entry.puzzle.number }}</span>
+              <span v-if="entry.status === 'ok'">✓</span>
+              <span v-else-if="entry.status === 'fail'">✕</span>
             </button>
           </div>
         </div>
