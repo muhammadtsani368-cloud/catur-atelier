@@ -1,14 +1,35 @@
 <script setup lang="ts">
-import { Chess, type Color, type PieceSymbol, type Square } from 'chess.js'
+import { Chess, type PieceSymbol, type Square } from 'chess.js'
+import type { Component } from 'vue'
 import {
+  ArrowRight,
+  Calendar,
   CheckCircle2,
+  Clock,
   Compass,
+  Flame,
+  Heart,
+  Infinity as InfinityIcon,
   Lightbulb,
-  Puzzle,
-  RefreshCw,
+  Play,
   RotateCcw,
-  Target
+  SlidersHorizontal,
+  Swords,
+  Target,
+  Trophy,
+  XCircle,
+  Zap
 } from 'lucide-vue-next'
+import {
+  BATTLE_RIVALS,
+  getDailyPuzzleForToday,
+  PUZZLE_BANK,
+  PUZZLE_THEMES,
+  type BattleRivalProfile,
+  type PuzzleModeKey,
+  type PuzzleThemeKey,
+  type TacticalPuzzleItem
+} from '~/utils/puzzleBank'
 import {
   playCheckSound,
   playErrorSound,
@@ -17,174 +38,372 @@ import {
   playWoodenMove
 } from '~/utils/sound'
 
-interface TacticalPuzzleItem {
-  id: string
-  title: string
-  theme: 'Skakmat' | 'Garpu' | 'Pin' | 'Pengorbanan'
-  rating: number
-  side: Color
-  fen: string
-  solutionSan: string
-  prompt: string
-  explanation: string
-  hint: string
-}
+const PUZZLE_STATS_KEY = 'grandmaster_atelier_puzzle_rating_v1'
 
-const ALL_PUZZLES: TacticalPuzzleItem[] = [
-  {
-    id: 'pz-opera-mate',
-    title: 'Skakmat Opera Paul Morphy',
-    theme: 'Skakmat',
-    rating: 1100,
-    side: 'w',
-    fen: '1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 1',
-    solutionSan: 'Rd8#',
-    prompt: 'Manfaatkan gajah g5 yang memaku jalur pelarian Raja Hitam!',
-    explanation: 'Rd8#! Skakmat klasik karena gajah g5 menjaga petak e7 sementara Benteng mengunci baris ke-8.',
-    hint: 'Gunakan lajur d yang terbuka untuk langsung menyerang Raja di e8.'
-  },
-  {
-    id: 'pz-carlsen-qh6',
-    title: 'Pengorbanan Menteri Carlsen',
-    theme: 'Pengorbanan',
-    rating: 1750,
-    side: 'w',
-    fen: '2R5/2R2ppk/4p3/p2pPP2/3P1Q1P/q5P1/r7/7K w - - 0 50',
-    solutionSan: 'Qh6+',
-    prompt: 'Temukan pengorbanan menteri penentu gelar juara dunia 2016!',
-    explanation: '50. Qh6+!! Memaksa 50... Kxh6 51. Rh8# atau 50... gxh6 51. Rxf7# tanpa jalan keluar.',
-    hint: 'Tawarkan Menteri Anda tepat di samping Raja Hitam untuk membuka lajur h dan petak f7.'
-  },
-  {
-    id: 'pz-royal-fork',
-    title: 'Garpu Kerajaan (Royal Fork)',
-    theme: 'Garpu',
-    rating: 950,
-    side: 'w',
-    fen: 'r3k3/ppp2ppp/8/3N4/8/8/PPP2PPP/R3K2R w KQq - 0 1',
-    solutionSan: 'Nxc7+',
-    prompt: 'Serang Raja dan Benteng Hitam dalam satu lompatan kuda!',
-    explanation: 'Nxc7+! Garpu ganda yang langsung memaksa Raja berpindah dan memenangkan Benteng a8.',
-    hint: 'Lompatkan Kuda d5 ke petak c7 yang tidak terjaga.'
-  },
-  {
-    id: 'pz-back-rank',
-    title: 'Skakmat Baris Belakang',
-    theme: 'Skakmat',
-    rating: 850,
-    side: 'w',
-    fen: '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1',
-    solutionSan: 'Rd8#',
-    prompt: 'Raja Hitam terkurung oleh tiga pionnya sendiri. Tuntaskan sekarang!',
-    explanation: 'Rd8#! Pola fundamental baris belakang saat benteng pion f7-g7-h7 belum memiliki lubang napas.',
-    hint: 'Dorong Benteng d1 ke baris ke-8.'
-  },
-  {
-    id: 'pz-pin-queen',
-    title: 'Paku Benteng Memenangkan Menteri',
-    theme: 'Pin',
-    rating: 1250,
-    side: 'w',
-    fen: '3k4/ppp2ppp/8/3q4/8/2P5/PP3PPP/4RBK1 w - - 0 1',
-    solutionSan: 'Rd1',
-    prompt: 'Menteri dan Raja Hitam berada pada lajur yang sama. Kunci posisinya!',
-    explanation: 'Rd1! Paku absolut di lajur d membuat Menteri d5 tidak bisa melarikan diri dari ancaman Benteng.',
-    hint: 'Tempatkan Benteng pada lajur d untuk memaku Menteri ke Raja di d8.'
-  },
-  {
-    id: 'pz-smothered-mate',
-    title: 'Skakmat Tercekik (Smothered Mate)',
-    theme: 'Skakmat',
-    rating: 1450,
-    side: 'w',
-    fen: '5r1k/6pp/7N/8/8/8/5PPP/6K1 w - - 0 1',
-    solutionSan: 'Nf7+',
-    prompt: 'Berikan skak kuda untuk memulai jaring skakmat klasik di sudut papan!',
-    explanation: 'Nf7+! Memaksa Raja kembali ke g8 dan menguasai petak kritis di sekitar Benteng f8.',
-    hint: 'Lompatkan Kuda h6 ke f7 dengan skak.'
-  },
-  {
-    id: 'pz-kasparov-rxd4',
-    title: 'Pengorbanan Benteng Kasparov 24. Rxd4!!',
-    theme: 'Pengorbanan',
-    rating: 2100,
-    side: 'w',
-    fen: 'b2r3r/k4p1p/p2q1np1/NppP4/3p1Q2/P4PPB/1PP4P/1K1RR3 w - - 1 24',
-    solutionSan: 'Rxd4',
-    prompt: 'Temukan pengorbanan benteng legendaris Garry Kasparov melawan Topalov!',
-    explanation: '24. Rxd4!! Membongkar pusat secara paksa dan memicu perburuan raja paling ikonik dalam sejarah catur.',
-    hint: 'Hancurkan pion d4 langsung dengan Benteng d1.'
-  }
-]
+interface StoredPuzzleStats {
+  rating: number
+  lastDelta: number
+  bestRushScore: number
+  dailyCompletedDate: string | null
+  dailyStreak: number
+  solvedIds: string[]
+}
 
 const { recordMoveResult, recordMistake, mistakeCount } = useChessProgress()
 const { isMuted } = useTheme()
 
-const activeTheme = ref<'Semua' | TacticalPuzzleItem['theme']>('Semua')
-const activeIndex = ref(0)
+// Mode state (Default: "Tidak Terbatas" matching the Architectural Editorial spec)
+const activeMode = ref<PuzzleModeKey>('unlimited')
+
+const modeTabs: Array<{ key: PuzzleModeKey; label: string; icon: Component }> = [
+  { key: 'daily', label: 'Teka-Teki Harian', icon: Calendar },
+  { key: 'unlimited', label: 'Tidak Terbatas', icon: InfinityIcon },
+  { key: 'rush', label: 'Teka-Teki Gegas', icon: Zap },
+  { key: 'battle', label: 'Duel Teka-Teki', icon: Swords },
+  { key: 'custom', label: 'Teka-Teki Custom', icon: SlidersHorizontal }
+]
+
+// Persistent Puzzle Rating & Records
+const puzzleRating = ref(1420)
+const lastRatingDelta = ref(14)
+const bestRushScore = ref(0)
+const dailyCompletedDate = ref<string | null>(null)
+const dailyStreak = ref(0)
 const solvedIds = ref<string[]>([])
 
-const filteredPuzzles = computed(() =>
-  activeTheme.value === 'Semua'
-    ? ALL_PUZZLES
-    : ALL_PUZZLES.filter((p) => p.theme === activeTheme.value)
+function getTodayIso(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+const todayFormattedId = computed(() => {
+  try {
+    return new Intl.DateTimeFormat('id-ID', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    }).format(new Date())
+  } catch {
+    return getTodayIso()
+  }
+})
+
+const isDailySolvedToday = computed(() => dailyCompletedDate.value === getTodayIso())
+
+function persistPuzzleStats() {
+  if (typeof window === 'undefined') return
+  try {
+    const payload: StoredPuzzleStats = {
+      rating: puzzleRating.value,
+      lastDelta: lastRatingDelta.value,
+      bestRushScore: bestRushScore.value,
+      dailyCompletedDate: dailyCompletedDate.value,
+      dailyStreak: dailyStreak.value,
+      solvedIds: solvedIds.value
+    }
+    localStorage.setItem(PUZZLE_STATS_KEY, JSON.stringify(payload))
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+function hydratePuzzleStats() {
+  if (typeof window === 'undefined') return
+  try {
+    const raw = localStorage.getItem(PUZZLE_STATS_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as Partial<StoredPuzzleStats>
+    if (typeof parsed.rating === 'number' && Number.isFinite(parsed.rating)) {
+      puzzleRating.value = parsed.rating
+    }
+    if (typeof parsed.lastDelta === 'number' && Number.isFinite(parsed.lastDelta)) {
+      lastRatingDelta.value = parsed.lastDelta
+    }
+    if (typeof parsed.bestRushScore === 'number') bestRushScore.value = parsed.bestRushScore
+    if (typeof parsed.dailyCompletedDate === 'string') {
+      dailyCompletedDate.value = parsed.dailyCompletedDate
+    }
+    if (typeof parsed.dailyStreak === 'number') dailyStreak.value = parsed.dailyStreak
+    if (Array.isArray(parsed.solvedIds)) solvedIds.value = parsed.solvedIds
+  } catch {
+    // Keep clean defaults
+  }
+}
+
+// Custom Mode Filters
+const customThemes = ref<PuzzleThemeKey[]>(['Skakmat', 'Garpu', 'Pin', 'Pengorbanan', 'Babak Akhir'])
+const customMinElo = ref(850)
+const customMaxElo = ref(2150)
+
+function toggleCustomTheme(theme: PuzzleThemeKey) {
+  if (customThemes.value.includes(theme)) {
+    if (customThemes.value.length > 1) {
+      customThemes.value = customThemes.value.filter((t) => t !== theme)
+    }
+  } else {
+    customThemes.value = [...customThemes.value, theme]
+  }
+}
+
+function resetCustomFilters() {
+  customThemes.value = ['Skakmat', 'Garpu', 'Pin', 'Pengorbanan', 'Babak Akhir']
+  customMinElo.value = 850
+  customMaxElo.value = 2150
+  activeIndex.value = 0
+}
+
+// Rush Mode State (Teka-Teki Gegas: 3 minutes, 3 lives)
+const RUSH_DURATION_SEC = 180
+const rushActive = ref(false)
+const rushFinished = ref(false)
+const rushTimeLeft = ref(RUSH_DURATION_SEC)
+const rushLives = ref(3)
+const rushScore = ref(0)
+const rushHistory = ref<Array<'ok' | 'fail'>>([])
+
+// Battle Mode State (Duel Teka-Teki: 3 minutes vs AI Rival)
+const BATTLE_DURATION_SEC = 180
+const selectedRivalId = ref<string>(BATTLE_RIVALS[1]!.id)
+const selectedRival = computed<BattleRivalProfile>(
+  () => BATTLE_RIVALS.find((r) => r.id === selectedRivalId.value) ?? BATTLE_RIVALS[1]!
 )
+const battleActive = ref(false)
+const battleFinished = ref(false)
+const battleTimeLeft = ref(BATTLE_DURATION_SEC)
+const battleUserScore = ref(0)
+const battleUserStrikes = ref(0)
+const battleRivalScore = ref(0)
+
+const battleOutcome = computed<'win' | 'draw' | 'lose'>(() => {
+  if (battleUserScore.value > battleRivalScore.value) return 'win'
+  if (battleUserScore.value < battleRivalScore.value) return 'lose'
+  return 'draw'
+})
+
+let modeTimer: ReturnType<typeof setInterval> | null = null
+let rivalProgressAccum = 0
+
+function stopModeTimer() {
+  if (modeTimer) {
+    clearInterval(modeTimer)
+    modeTimer = null
+  }
+}
+
+// Session Stats (Unlimited / Custom)
+const sessionStreak = ref(0)
+const sessionSolved = ref(0)
+const sessionAttempts = ref(0)
+const sessionHistory = ref<Array<{ number: number; ok: boolean }>>([])
+
+const sessionAccuracy = computed(() => {
+  if (sessionAttempts.value === 0) return 100
+  return Math.round((sessionSolved.value / sessionAttempts.value) * 100)
+})
+
+// Active Puzzle Pool based on activeMode
+const dailyPuzzle = computed<TacticalPuzzleItem>(() => getDailyPuzzleForToday())
+
+const activePool = computed<TacticalPuzzleItem[]>(() => {
+  if (activeMode.value === 'daily') {
+    return [dailyPuzzle.value]
+  }
+  if (activeMode.value === 'custom') {
+    const low = Math.min(customMinElo.value, customMaxElo.value)
+    const high = Math.max(customMinElo.value, customMaxElo.value)
+    const filtered = PUZZLE_BANK.filter(
+      (p) => customThemes.value.includes(p.theme) && p.rating >= low && p.rating <= high
+    )
+    return filtered.length > 0 ? filtered : PUZZLE_BANK
+  }
+  if (activeMode.value === 'rush' || activeMode.value === 'battle') {
+    // Progressive difficulty order (easiest to hardest)
+    return [...PUZZLE_BANK].sort((a, b) => a.rating - b.rating)
+  }
+  // Unlimited: full bank sorted nicely
+  return PUZZLE_BANK
+})
+
+// Start on a clean fork/tactical puzzle in Unlimited mode by default (index 10 = #11 or #3)
+const activeIndex = ref(2)
 
 const currentPuzzle = computed<TacticalPuzzleItem>(
-  () => filteredPuzzles.value[activeIndex.value] ?? filteredPuzzles.value[0] ?? ALL_PUZZLES[0]!
+  () => activePool.value[activeIndex.value] ?? activePool.value[0] ?? PUZZLE_BANK[0]!
 )
 
+// Live Board State
 const boardFen = ref(currentPuzzle.value.fen)
 const lastMove = ref<{ from: string; to: string } | null>(null)
 const solved = ref(false)
+const hadMistakeOnCurrent = ref(false)
 const correctSquare = ref<string | null>(null)
 const errorSquare = ref<string | null>(null)
 const hintFrom = ref<string | null>(null)
 const hintTo = ref<string | null>(null)
 const shake = ref(false)
+const feedbackTone = ref<'neutral' | 'success' | 'error'>('neutral')
 const feedbackText = ref(currentPuzzle.value.prompt)
 
 let shakeTimer: ReturnType<typeof setTimeout> | null = null
+let autoAdvanceTimer: ReturnType<typeof setTimeout> | null = null
+
+const isBoardLocked = computed(() => {
+  if (solved.value) return true
+  if (activeMode.value === 'rush' && (!rushActive.value || rushFinished.value)) return true
+  if (activeMode.value === 'battle' && (!battleActive.value || battleFinished.value)) return true
+  return false
+})
 
 function loadCurrentPuzzle() {
+  if (autoAdvanceTimer) {
+    clearTimeout(autoAdvanceTimer)
+    autoAdvanceTimer = null
+  }
   const p = currentPuzzle.value
   boardFen.value = p.fen
   lastMove.value = null
   solved.value = false
+  hadMistakeOnCurrent.value = false
   correctSquare.value = null
   errorSquare.value = null
   hintFrom.value = null
   hintTo.value = null
   shake.value = false
+  feedbackTone.value = 'neutral'
   feedbackText.value = p.prompt
 }
 
-watch([activeTheme, activeIndex], () => {
-  if (activeIndex.value >= filteredPuzzles.value.length) {
-    activeIndex.value = 0
-  }
+function switchMode(mode: PuzzleModeKey) {
+  if (activeMode.value === mode) return
+  stopModeTimer()
+  rushActive.value = false
+  rushFinished.value = false
+  battleActive.value = false
+  battleFinished.value = false
+  activeMode.value = mode
+  activeIndex.value = mode === 'unlimited' ? 2 : 0
   loadCurrentPuzzle()
-})
+}
 
 function nextPuzzle() {
-  activeIndex.value = (activeIndex.value + 1) % filteredPuzzles.value.length
+  if (activePool.value.length <= 1) {
+    loadCurrentPuzzle()
+    return
+  }
+  activeIndex.value = (activeIndex.value + 1) % activePool.value.length
+  loadCurrentPuzzle()
+}
+
+function selectPuzzleByIndex(idx: number) {
+  if (idx < 0 || idx >= activePool.value.length) return
+  activeIndex.value = idx
+  loadCurrentPuzzle()
+}
+
+function formatClock(seconds: number): string {
+  const safe = Math.max(0, seconds)
+  const mins = Math.floor(safe / 60)
+  const secs = safe % 60
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+}
+
+function startRushRun() {
+  stopModeTimer()
+  rushActive.value = true
+  rushFinished.value = false
+  rushTimeLeft.value = RUSH_DURATION_SEC
+  rushLives.value = 3
+  rushScore.value = 0
+  rushHistory.value = []
+  activeIndex.value = 0
+  loadCurrentPuzzle()
+
+  modeTimer = setInterval(() => {
+    rushTimeLeft.value = Math.max(0, rushTimeLeft.value - 1)
+    if (rushTimeLeft.value === 0) {
+      finishRushRun()
+    }
+  }, 1000)
+}
+
+function finishRushRun() {
+  stopModeTimer()
+  rushActive.value = false
+  rushFinished.value = true
+  if (rushScore.value > bestRushScore.value) {
+    bestRushScore.value = rushScore.value
+    persistPuzzleStats()
+  }
+  playSuccessChime(isMuted.value)
+}
+
+function startBattleRun() {
+  stopModeTimer()
+  battleActive.value = true
+  battleFinished.value = false
+  battleTimeLeft.value = BATTLE_DURATION_SEC
+  battleUserScore.value = 0
+  battleUserStrikes.value = 0
+  battleRivalScore.value = 0
+  rivalProgressAccum = 0
+  activeIndex.value = 0
+  loadCurrentPuzzle()
+
+  modeTimer = setInterval(() => {
+    battleTimeLeft.value = Math.max(0, battleTimeLeft.value - 1)
+    rivalProgressAccum += 1
+    const pace = selectedRival.value.avgSecondsPerSolve
+    if (rivalProgressAccum >= pace) {
+      rivalProgressAccum = 0
+      // Small realistic variance so the race feels alive
+      if (Math.random() < 0.85) {
+        battleRivalScore.value += 1
+      }
+    }
+    if (battleTimeLeft.value === 0) {
+      finishBattleRun()
+    }
+  }, 1000)
+}
+
+function finishBattleRun() {
+  stopModeTimer()
+  battleActive.value = false
+  battleFinished.value = true
+  if (battleOutcome.value === 'win') {
+    playSuccessChime(isMuted.value)
+  } else {
+    playErrorSound(isMuted.value)
+  }
 }
 
 function showHint() {
-  if (solved.value) return
+  if (isBoardLocked.value) return
   try {
     const g = new Chess(currentPuzzle.value.fen)
     const m = g.move(currentPuzzle.value.solutionSan)
     hintFrom.value = m.from
     hintTo.value = m.to
-    feedbackText.value = currentPuzzle.value.hint
+    feedbackTone.value = 'neutral'
+    feedbackText.value = `Petunjuk: ${currentPuzzle.value.hint}`
   } catch {
     // Ignore
   }
 }
 
+function updateRatedScore(isCorrect: boolean, puzzleElo: number) {
+  const expected = 1 / (1 + Math.pow(10, (puzzleElo - puzzleRating.value) / 400))
+  const k = 28
+  const rawDelta = Math.round(k * ((isCorrect ? 1 : 0) - expected))
+  const delta = isCorrect ? Math.max(6, rawDelta) : Math.min(-6, rawDelta)
+  puzzleRating.value = Math.max(600, Math.min(2800, puzzleRating.value + delta))
+  lastRatingDelta.value = delta
+  persistPuzzleStats()
+}
+
 function handlePuzzleMove(payload: { from: Square; to: Square; promotion?: PieceSymbol }) {
-  if (solved.value) return
+  if (isBoardLocked.value) return
   const p = currentPuzzle.value
   const g = new Chess(p.fen)
   let played
@@ -206,17 +425,52 @@ function handlePuzzleMove(payload: { from: Square; to: Square; promotion?: Piece
     errorSquare.value = null
     hintFrom.value = null
     hintTo.value = null
+    feedbackTone.value = 'success'
     feedbackText.value = p.explanation
+
     if (!solvedIds.value.includes(p.id)) {
       solvedIds.value = [...solvedIds.value, p.id]
     }
-
     recordMoveResult(p.id, true)
+
     if (played.san.includes('#') || played.san.includes('+')) playCheckSound(isMuted.value)
     else if (played.captured) playWoodenCapture(isMuted.value)
     else playWoodenMove(isMuted.value)
-    setTimeout(() => playSuccessChime(isMuted.value), 160)
+
+    if (activeMode.value === 'daily') {
+      const today = getTodayIso()
+      if (dailyCompletedDate.value !== today) {
+        dailyCompletedDate.value = today
+        dailyStreak.value += 1
+        if (!hadMistakeOnCurrent.value) updateRatedScore(true, p.rating)
+      }
+      persistPuzzleStats()
+      setTimeout(() => playSuccessChime(isMuted.value), 160)
+    } else if (activeMode.value === 'unlimited' || activeMode.value === 'custom') {
+      sessionAttempts.value += 1
+      sessionSolved.value += 1
+      sessionStreak.value += 1
+      sessionHistory.value = [{ number: p.number, ok: !hadMistakeOnCurrent.value }, ...sessionHistory.value].slice(0, 12)
+      if (!hadMistakeOnCurrent.value && activeMode.value === 'unlimited') {
+        updateRatedScore(true, p.rating)
+      } else {
+        persistPuzzleStats()
+      }
+      setTimeout(() => playSuccessChime(isMuted.value), 160)
+    } else if (activeMode.value === 'rush') {
+      rushScore.value += 1
+      rushHistory.value = [...rushHistory.value, 'ok']
+      autoAdvanceTimer = setTimeout(() => {
+        if (rushActive.value) nextPuzzle()
+      }, 520)
+    } else if (activeMode.value === 'battle') {
+      battleUserScore.value += 1
+      autoAdvanceTimer = setTimeout(() => {
+        if (battleActive.value) nextPuzzle()
+      }, 520)
+    }
   } else {
+    hadMistakeOnCurrent.value = true
     recordMoveResult(p.id, false)
     recordMistake({
       source: 'daily',
@@ -227,181 +481,751 @@ function handlePuzzleMove(payload: { from: Square; to: Square; promotion?: Piece
     })
     playErrorSound(isMuted.value)
     errorSquare.value = payload.to
-    feedbackText.value = `${played.san} belum tepat. ${p.hint} (Dicatat ke Antrean Kesalahan)`
+    feedbackTone.value = 'error'
+    feedbackText.value = `${played.san} belum tepat. ${p.hint}`
     shake.value = true
     if (shakeTimer) clearTimeout(shakeTimer)
     shakeTimer = setTimeout(() => {
       shake.value = false
     }, 360)
+
+    if (activeMode.value === 'unlimited') {
+      sessionAttempts.value += 1
+      sessionStreak.value = 0
+      sessionHistory.value = [{ number: p.number, ok: false }, ...sessionHistory.value].slice(0, 12)
+      updateRatedScore(false, p.rating)
+    } else if (activeMode.value === 'custom') {
+      sessionAttempts.value += 1
+      sessionStreak.value = 0
+      sessionHistory.value = [{ number: p.number, ok: false }, ...sessionHistory.value].slice(0, 12)
+    } else if (activeMode.value === 'rush') {
+      rushLives.value = Math.max(0, rushLives.value - 1)
+      rushHistory.value = [...rushHistory.value, 'fail']
+      if (rushLives.value === 0) {
+        finishRushRun()
+      } else {
+        autoAdvanceTimer = setTimeout(() => {
+          if (rushActive.value) nextPuzzle()
+        }, 700)
+      }
+    } else if (activeMode.value === 'battle') {
+      battleUserStrikes.value += 1
+      if (battleUserStrikes.value >= 3) {
+        finishBattleRun()
+      } else {
+        autoAdvanceTimer = setTimeout(() => {
+          if (battleActive.value) nextPuzzle()
+        }, 700)
+      }
+    }
   }
 }
 
+watch([customThemes, customMinElo, customMaxElo], () => {
+  if (activeMode.value === 'custom') {
+    activeIndex.value = 0
+    loadCurrentPuzzle()
+  }
+})
+
+onMounted(() => {
+  hydratePuzzleStats()
+  loadCurrentPuzzle()
+})
+
 onBeforeUnmount(() => {
+  stopModeTimer()
   if (shakeTimer) clearTimeout(shakeTimer)
+  if (autoAdvanceTimer) clearTimeout(autoAdvanceTimer)
 })
 </script>
 
 <template>
-  <div class="space-y-8">
-    <!-- Cosmic Header -->
-    <section
-      class="surface-tactile-hero rounded-3xl border border-[#3B3561]/12 dark:border-white/10 bg-white dark:bg-[#2A264A] p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-4"
-    >
-      <div class="space-y-2 max-w-2xl">
-        <div class="flex items-center gap-2">
-          <Puzzle class="w-4 h-4 text-[#9D8DF1]" />
-          <span class="font-mono text-[11px] uppercase tracking-[0.16em] font-semibold text-[#3B3561] dark:text-[#9D8DF1]">
-            Arena Teka-Teki Taktik
-          </span>
-        </div>
-        <h1 class="font-serif text-3xl sm:text-4xl font-semibold tracking-[-0.02em] text-[#1E1B38] dark:text-[#FAF8F5]">
-          Tajamkan Insting Taktis Satu Langkah Kunci.
+  <div class="space-y-6">
+    <!-- Editorial Header & Live Puzzle Rating Badge -->
+    <section class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div class="space-y-1">
+        <span
+          class="inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.16em] font-semibold text-[#526857] dark:text-[#9DB5A1]"
+        >
+          <span class="w-1.5 h-1.5 rounded-full bg-[#526857] dark:bg-[#9DB5A1]" aria-hidden="true" />
+          <span>STUDIO TAKTIK &amp; KETAJAMAN</span>
+        </span>
+        <h1
+          class="font-serif text-3xl sm:text-4xl font-semibold tracking-[-0.02em] text-[#202321] dark:text-[#F4F3EE]"
+        >
+          Teka-Teki Catur
         </h1>
-        <p class="text-sm text-[#5A5673] dark:text-[#C8C3E4]">
-          Selesaikan teka-teki klasik pilihan. Setiap langkah keliru otomatis masuk ke Buku Catatan Kesalahan
-          agar bisa Anda ulang hingga dikuasai penuh.
-        </p>
       </div>
 
-      <div class="flex flex-wrap items-center gap-2 shrink-0">
-        <span
-          class="px-3.5 py-2 rounded-full font-mono text-xs font-semibold bg-[#4ECDC4]/18 text-[#1E5C57] dark:text-[#86EFE7] border border-[#4ECDC4]/40"
+      <!-- Live Puzzle Rating Pill -->
+      <div class="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
+        <div
+          class="inline-flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_6px_18px_-12px_rgba(32,35,33,0.16)] dark:shadow-none"
         >
-          Terselesaikan: {{ solvedIds.length }} / {{ ALL_PUZZLES.length }}
-        </span>
+          <span
+            class="w-2 h-2 rounded-full shrink-0"
+            :class="lastRatingDelta >= 0 ? 'bg-[#526857] dark:bg-[#9DB5A1]' : 'bg-[#B85D43]'"
+            aria-hidden="true"
+          />
+          <span class="font-mono text-xs font-semibold tracking-[0.04em] text-[#202321] dark:text-zinc-100">
+            RATING TEKA-TEKI:
+            <strong class="font-bold">{{ puzzleRating }}</strong>
+            <span
+              class="ml-1"
+              :class="
+                lastRatingDelta >= 0
+                  ? 'text-[#526857] dark:text-[#9DB5A1]'
+                  : 'text-[#B85D43] dark:text-[#E8987E]'
+              "
+            >
+              ({{ lastRatingDelta >= 0 ? `+${lastRatingDelta}` : lastRatingDelta }})
+            </span>
+          </span>
+        </div>
+
         <NuxtLink
           v-if="mistakeCount > 0"
           to="/dashboard"
-          class="px-3.5 py-2 rounded-full text-xs font-semibold bg-[#F26B5B]/15 text-[#B63A2C] dark:text-[#FFA89D] border border-[#F26B5B]/35 hover:bg-[#F26B5B] hover:text-white transition"
+          class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-[#B85D43]/35 bg-[#B85D43]/10 text-[#9B4830] dark:text-[#F2AE98] hover:bg-[#B85D43] hover:text-white transition active:scale-[0.98]"
         >
-          Perlu Diulang ({{ mistakeCount }})
+          <RotateCcw class="w-3.5 h-3.5" />
+          <span>Perlu Diulang ({{ mistakeCount }})</span>
         </NuxtLink>
       </div>
     </section>
 
-    <!-- Theme Filter Pills -->
-    <div class="flex flex-wrap items-center gap-2" role="group" aria-label="Filter tema teka-teki">
-      <button
-        v-for="theme in (['Semua', 'Skakmat', 'Garpu', 'Pin', 'Pengorbanan'] as const)"
-        :key="theme"
-        type="button"
-        :aria-pressed="activeTheme === theme"
-        class="px-4 py-2 rounded-full text-xs font-semibold border transition active:scale-[0.97] cursor-pointer"
-        :class="
-          activeTheme === theme
-            ? 'bg-[#3B3561] text-[#FAF8F5] border-[#3B3561] dark:bg-[#9D8DF1] dark:text-[#1E1B38] dark:border-[#9D8DF1]'
-            : 'bg-white dark:bg-[#2A264A] text-[#5A5673] dark:text-[#D5D0F0] border-[#3B3561]/12 dark:border-white/10 hover:border-[#9D8DF1]'
-        "
-        @click="
-          () => {
-            activeTheme = theme
-            activeIndex = 0
-          }
-        "
+    <!-- 5-Mode Horizontal Segmented Pill Switcher -->
+    <div
+      class="w-full overflow-x-auto pb-1"
+      role="tablist"
+      aria-label="Pilih mode teka-teki catur"
+    >
+      <div
+        class="inline-flex min-w-full sm:min-w-0 items-center gap-1 p-1.5 rounded-2xl border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_8px_20px_-14px_rgba(32,35,33,0.14)] dark:shadow-none"
       >
-        {{ theme }}
-      </button>
+        <button
+          v-for="tab in modeTabs"
+          :key="tab.key"
+          type="button"
+          role="tab"
+          :aria-selected="activeMode === tab.key"
+          class="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all duration-150 active:scale-[0.98] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675]"
+          :class="
+            activeMode === tab.key
+              ? 'bg-[#141416] text-[#F7F5F0] dark:bg-[#EDEAE0] dark:text-[#141416] shadow-sm'
+              : 'text-zinc-600 dark:text-zinc-400 hover:text-[#202321] dark:hover:text-zinc-100 hover:bg-[#F7F5F0] dark:hover:bg-zinc-800/70'
+          "
+          @click="switchMode(tab.key)"
+        >
+          <component
+            :is="tab.icon"
+            class="w-3.5 h-3.5 shrink-0"
+            :class="
+              tab.key === 'rush' && activeMode !== 'rush'
+                ? 'text-[#C59B46]'
+                : ''
+            "
+          />
+          <span>{{ tab.label }}</span>
+        </button>
+      </div>
     </div>
 
-    <!-- Main Interactive Puzzle Stage -->
+    <!-- Main 2-Column Workspace (62% Left / 38% Right -> 7 / 5 on 12-col grid) -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
-      <div class="lg:col-span-7">
-        <ChessBoard
-          :fen="boardFen"
-          :orientation="currentPuzzle.side"
-          :interactive="!solved"
-          :allowed-color="currentPuzzle.side"
-          :last-move="lastMove"
-          :correct-square="correctSquare"
-          :error-square="errorSquare"
-          :hint-from="hintFrom"
-          :hint-to="hintTo"
-          :shake="shake"
-          @move="handlePuzzleMove"
-        />
-      </div>
-
-      <div class="lg:col-span-5 space-y-4">
+      <!-- LEFT COLUMN: Board-First Focus -->
+      <div class="lg:col-span-7 space-y-3.5">
+        <!-- Top Metadata Bar Above Board -->
         <div
-          class="floating-control-sheet rounded-3xl border border-[#3B3561]/12 dark:border-white/10 bg-white dark:bg-[#2A264A] p-6 space-y-5"
+          class="max-w-[560px] mx-auto flex flex-wrap items-center justify-between gap-2 px-1"
         >
-          <div class="flex items-center justify-between gap-2">
-            <span
-              class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-mono text-[10px] uppercase tracking-[0.12em] font-semibold"
-              :class="
-                solved
-                  ? 'bg-[#4ECDC4]/20 text-[#1D5E59] dark:text-[#86EFE7]'
-                  : 'bg-[#F26B5B]/15 text-[#B63A2C] dark:text-[#FFA89D]'
-              "
-            >
-              <CheckCircle2 v-if="solved" class="w-3.5 h-3.5" />
-              <Target v-else class="w-3.5 h-3.5" />
-              <span>{{ currentPuzzle.theme }} · {{ currentPuzzle.rating }} ELO</span>
-            </span>
-
-            <span class="font-mono text-xs text-[#5A5673] dark:text-[#B5B0D4]">
-              #{{ activeIndex + 1 }} / {{ filteredPuzzles.length }}
-            </span>
-          </div>
-
-          <div>
-            <h2 class="font-serif text-2xl font-semibold text-[#1E1B38] dark:text-[#FAF8F5]">
-              {{ currentPuzzle.title }}
-            </h2>
-            <p class="text-xs font-mono uppercase tracking-[0.12em] text-[#9D8DF1] mt-1">
-              Giliran {{ currentPuzzle.side === 'w' ? 'Putih' : 'Hitam' }} Melangkah
-            </p>
+          <div class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.12em] font-semibold text-zinc-600 dark:text-zinc-400">
+            <span class="text-[#202321] dark:text-zinc-100">SOAL #{{ currentPuzzle.number }}</span>
+            <span aria-hidden="true">·</span>
+            <span>{{ currentPuzzle.theme.toUpperCase() }} ({{ currentPuzzle.themeSubtitle }})</span>
+            <span aria-hidden="true">·</span>
+            <span class="text-[#526857] dark:text-[#9DB5A1]">{{ currentPuzzle.rating }} ELO</span>
           </div>
 
           <div
-            class="rounded-2xl p-4 text-sm leading-relaxed border"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] text-[11px] font-semibold text-[#202321] dark:text-zinc-200"
+          >
+            <span
+              class="w-2.5 h-2.5 rounded-full border"
+              :class="
+                currentPuzzle.side === 'w'
+                  ? 'bg-[#F7F5F0] border-zinc-400'
+                  : 'bg-[#141416] border-zinc-600'
+              "
+              aria-hidden="true"
+            />
+            <span>Giliran {{ currentPuzzle.side === 'w' ? 'Putih' : 'Hitam' }} Melangkah</span>
+          </div>
+        </div>
+
+        <!-- Museum-Framed ChessBoard with Timed Start Overlay for Rush / Battle -->
+        <div class="relative max-w-[560px] mx-auto">
+          <ChessBoard
+            :fen="boardFen"
+            :orientation="currentPuzzle.side"
+            :interactive="!isBoardLocked"
+            :allowed-color="currentPuzzle.side"
+            :last-move="lastMove"
+            :correct-square="correctSquare"
+            :error-square="errorSquare"
+            :hint-from="hintFrom"
+            :hint-to="hintTo"
+            :shake="shake"
+            @move="handlePuzzleMove"
+          />
+
+          <!-- Timed Mode Ready/Result Overlay (Rush or Battle) -->
+          <div
+            v-if="
+              (activeMode === 'rush' && !rushActive) ||
+              (activeMode === 'battle' && !battleActive)
+            "
+            class="absolute inset-x-2 top-2 bottom-10 z-30 rounded-2xl bg-[#141416]/78 backdrop-blur-[3px] flex items-center justify-center p-6 text-center"
+          >
+            <div
+              class="max-w-xs w-full rounded-2xl border border-white/15 bg-[#1B1D1B] text-[#F7F5F0] p-6 space-y-4 shadow-2xl"
+            >
+              <!-- Rush Overlay -->
+              <template v-if="activeMode === 'rush'">
+                <div class="w-11 h-11 rounded-2xl bg-[#C59B46]/20 border border-[#C59B46]/40 text-[#E5C170] flex items-center justify-center mx-auto">
+                  <Zap class="w-5 h-5" />
+                </div>
+                <div class="space-y-1">
+                  <span class="font-mono text-[10px] uppercase tracking-[0.14em] text-[#E5C170]">
+                    {{ rushFinished ? 'SESI GEGAS SELESAI' : 'MODE KECEPATAN · 3 MENIT' }}
+                  </span>
+                  <h3 class="font-serif text-2xl font-semibold">
+                    {{ rushFinished ? `Skor Anda: ${rushScore}` : 'Teka-Teki Gegas' }}
+                  </h3>
+                  <p class="text-xs text-zinc-300 leading-relaxed">
+                    {{
+                      rushFinished
+                        ? `Rekor terbaik Anda saat ini ${bestRushScore} soal benar.`
+                        : 'Selesaikan teka-teki sebanyak mungkin dalam 3 menit. Hati-hati, 3 kesalahan langsung mengakhiri sesi.'
+                    }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full text-xs font-semibold bg-[#F7F5F0] text-[#141416] hover:bg-white active:scale-[0.98] transition cursor-pointer"
+                  @click="startRushRun"
+                >
+                  <Play class="w-3.5 h-3.5" />
+                  <span>{{ rushFinished ? 'Main Gegas Lagi' : 'Mulai Teka-Teki Gegas' }}</span>
+                </button>
+              </template>
+
+              <!-- Battle Overlay -->
+              <template v-else>
+                <div class="w-11 h-11 rounded-2xl bg-[#526857]/30 border border-[#718675]/50 text-[#A4CBB3] flex items-center justify-center mx-auto">
+                  <Swords class="w-5 h-5" />
+                </div>
+                <div class="space-y-1">
+                  <span class="font-mono text-[10px] uppercase tracking-[0.14em] text-[#A4CBB3]">
+                    {{
+                      battleFinished
+                        ? battleOutcome === 'win'
+                          ? 'KEMENANGAN DUEL'
+                          : battleOutcome === 'draw'
+                            ? 'DUEL IMBANG'
+                            : 'DUEL BERAKHIR'
+                        : `TANTANGAN 3 MENIT · ${selectedRival.elo} ELO`
+                    }}
+                  </span>
+                  <h3 class="font-serif text-2xl font-semibold">
+                    {{
+                      battleFinished
+                        ? `Anda ${battleUserScore} — ${battleRivalScore} ${selectedRival.name}`
+                        : `Duel vs ${selectedRival.name}`
+                    }}
+                  </h3>
+                  <p class="text-xs text-zinc-300 leading-relaxed">
+                    {{
+                      battleFinished
+                        ? battleOutcome === 'win'
+                          ? 'Insting taktis Anda lebih cepat dan tajam dari lawan!'
+                          : 'Tanding ulang atau pilih rival lain di panel kanan.'
+                        : 'Adu kecepatan memecahkan teka-teki selama 3 menit. Maksimal 3 kesalahan.'
+                    }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full text-xs font-semibold bg-[#F7F5F0] text-[#141416] hover:bg-white active:scale-[0.98] transition cursor-pointer"
+                  @click="startBattleRun"
+                >
+                  <Play class="w-3.5 h-3.5" />
+                  <span>{{ battleFinished ? 'Tanding Ulang' : 'Mulai Duel Sekarang' }}</span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Action Bar Below Board -->
+        <div
+          class="max-w-[560px] mx-auto flex flex-wrap items-center justify-between gap-2.5 pt-1"
+        >
+          <div class="flex items-center gap-2">
+            <!-- Petunjuk (Outline) -->
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full text-xs font-semibold border border-[#E4DFD5] dark:border-zinc-700 bg-white dark:bg-[#19191D] text-[#202321] dark:text-zinc-200 hover:border-[#718675] disabled:opacity-45 active:scale-[0.98] transition cursor-pointer"
+              :disabled="isBoardLocked || activeMode === 'rush' || activeMode === 'battle'"
+              @click="showHint"
+            >
+              <Lightbulb class="w-3.5 h-3.5 text-[#C59B46]" />
+              <span>Petunjuk</span>
+            </button>
+
+            <!-- Ulangi (Ghost) -->
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-full text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-[#202321] dark:hover:text-zinc-100 hover:bg-[#EDEAE0]/70 dark:hover:bg-zinc-800/70 disabled:opacity-40 active:scale-[0.98] transition cursor-pointer"
+              :disabled="(activeMode === 'rush' && rushActive) || (activeMode === 'battle' && battleActive)"
+              @click="loadCurrentPuzzle"
+            >
+              <RotateCcw class="w-3.5 h-3.5" />
+              <span>Ulangi</span>
+            </button>
+          </div>
+
+          <!-- Soal Berikutnya -> (Primary Obsidian Pill) -->
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-semibold bg-[#141416] text-[#F7F5F0] dark:bg-[#EDEAE0] dark:text-[#141416] hover:opacity-92 disabled:opacity-45 active:scale-[0.98] transition shadow-sm cursor-pointer"
+            :disabled="activeMode === 'daily' || (activeMode === 'rush' && !rushActive) || (activeMode === 'battle' && !battleActive)"
+            @click="nextPuzzle"
+          >
+            <span>Soal Berikutnya</span>
+            <ArrowRight class="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN: Editorial Tactical Control Sheet & Mode Telemetry -->
+      <div class="lg:col-span-5 space-y-4">
+        <!-- 1. MODE-SPECIFIC TELEMETRY CARD -->
+
+        <!-- A. Teka-Teki Harian -->
+        <div
+          v-if="activeMode === 'daily'"
+          class="surface-tactile-card rounded-2xl border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] p-5 space-y-4"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <span class="font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400 block">
+                EDISI HARIAN
+              </span>
+              <p class="font-serif text-lg font-semibold text-[#202321] dark:text-zinc-100 capitalize">
+                {{ todayFormattedId }}
+              </p>
+            </div>
+            <span
+              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-mono text-[11px] font-semibold"
+              :class="
+                isDailySolvedToday
+                  ? 'bg-[#526857]/15 text-[#3B5240] dark:text-[#A4CBB3]'
+                  : 'bg-[#C59B46]/15 text-[#8E6D28] dark:text-[#E8C678]'
+              "
+            >
+              <CheckCircle2 v-if="isDailySolvedToday" class="w-3.5 h-3.5" />
+              <Flame v-else class="w-3.5 h-3.5" />
+              <span>{{ isDailySolvedToday ? 'Selesai' : 'Aktif' }}</span>
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2.5">
+            <div class="rounded-xl border border-[#E4DFD5] dark:border-zinc-800 bg-[#F7F5F0] dark:bg-zinc-900 p-3">
+              <span class="font-mono text-[10px] uppercase tracking-wider text-zinc-500 block">Streak Harian</span>
+              <span class="font-serif text-xl font-semibold text-[#202321] dark:text-zinc-100">
+                {{ dailyStreak }} Hari
+              </span>
+            </div>
+            <div class="rounded-xl border border-[#E4DFD5] dark:border-zinc-800 bg-[#F7F5F0] dark:bg-zinc-900 p-3">
+              <span class="font-mono text-[10px] uppercase tracking-wider text-zinc-500 block">Tingkat Soal</span>
+              <span class="font-serif text-xl font-semibold text-[#526857] dark:text-[#9DB5A1]">
+                {{ currentPuzzle.rating }} ELO
+              </span>
+            </div>
+          </div>
+
+          <button
+            v-if="solved"
+            type="button"
+            class="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[#526857] text-white hover:bg-[#435648] transition cursor-pointer"
+            @click="switchMode('unlimited')"
+          >
+            <span>Lanjut ke Mode Tidak Terbatas</span>
+            <ArrowRight class="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <!-- B. Tidak Terbatas (Default) -->
+        <div
+          v-else-if="activeMode === 'unlimited'"
+          class="surface-tactile-card rounded-2xl border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] p-5 space-y-4"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-mono text-[10px] uppercase tracking-[0.14em] font-semibold text-zinc-500 dark:text-zinc-400">
+              TELEMETRI SESI TIDAK TERBATAS
+            </span>
+            <span class="font-mono text-[11px] font-semibold text-[#526857] dark:text-[#9DB5A1]">
+              {{ solvedIds.length }} / {{ PUZZLE_BANK.length }} Tuntas
+            </span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2.5">
+            <div class="rounded-xl border border-[#E4DFD5] dark:border-zinc-800 bg-[#F7F5F0] dark:bg-zinc-900 p-3">
+              <span class="font-mono text-[9px] uppercase tracking-wider text-zinc-500 block">Beruntun</span>
+              <span class="font-serif text-xl font-semibold text-[#202321] dark:text-zinc-100">
+                {{ sessionStreak }}
+              </span>
+            </div>
+            <div class="rounded-xl border border-[#E4DFD5] dark:border-zinc-800 bg-[#F7F5F0] dark:bg-zinc-900 p-3">
+              <span class="font-mono text-[9px] uppercase tracking-wider text-zinc-500 block">Akurasi</span>
+              <span class="font-serif text-xl font-semibold text-[#526857] dark:text-[#9DB5A1]">
+                {{ sessionAccuracy }}%
+              </span>
+            </div>
+            <div class="rounded-xl border border-[#E4DFD5] dark:border-zinc-800 bg-[#F7F5F0] dark:bg-zinc-900 p-3">
+              <span class="font-mono text-[9px] uppercase tracking-wider text-zinc-500 block">Selesai</span>
+              <span class="font-serif text-xl font-semibold text-[#202321] dark:text-zinc-100">
+                {{ sessionSolved }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Recent Result Strip -->
+          <div v-if="sessionHistory.length > 0" class="flex items-center gap-1.5 flex-wrap pt-0.5">
+            <span class="font-mono text-[10px] uppercase tracking-wider text-zinc-500 mr-1">Riwayat:</span>
+            <span
+              v-for="(item, idx) in sessionHistory"
+              :key="idx"
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold border"
+              :class="
+                item.ok
+                  ? 'bg-[#526857]/12 text-[#3B5240] border-[#526857]/30 dark:text-[#A4CBB3]'
+                  : 'bg-[#B85D43]/12 text-[#9B4830] border-[#B85D43]/30 dark:text-[#F0AE98]'
+              "
+            >
+              #{{ item.number }} {{ item.ok ? '✓' : '✕' }}
+            </span>
+          </div>
+        </div>
+
+        <!-- C. Teka-Teki Gegas (Puzzle Rush) -->
+        <div
+          v-else-if="activeMode === 'rush'"
+          class="rounded-2xl border border-[#2B2D2B] bg-[#141416] text-[#F7F5F0] p-5 space-y-4 shadow-lg"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <Zap class="w-4 h-4 text-[#C59B46]" />
+              <span class="font-mono text-[11px] uppercase tracking-[0.14em] font-semibold text-[#E5C170]">
+                TEKA-TEKI GEGAS
+              </span>
+            </div>
+            <span class="font-mono text-xs text-zinc-400">
+              Rekor: <strong class="text-white">{{ bestRushScore }}</strong>
+            </span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2.5 text-center">
+            <div class="rounded-xl bg-white/[0.06] border border-white/10 p-3">
+              <span class="font-mono text-[9px] uppercase tracking-wider text-zinc-400 block">Waktu</span>
+              <span
+                class="font-mono text-xl font-bold tabular-nums"
+                :class="rushTimeLeft <= 20 && rushActive ? 'text-[#E8856B] animate-pulse' : 'text-white'"
+              >
+                {{ formatClock(rushTimeLeft) }}
+              </span>
+            </div>
+            <div class="rounded-xl bg-white/[0.06] border border-white/10 p-3">
+              <span class="font-mono text-[9px] uppercase tracking-wider text-zinc-400 block">Skor</span>
+              <span class="font-mono text-xl font-bold text-[#9DB5A1]">{{ rushScore }}</span>
+            </div>
+            <div class="rounded-xl bg-white/[0.06] border border-white/10 p-3">
+              <span class="font-mono text-[9px] uppercase tracking-wider text-zinc-400 block">Nyawa</span>
+              <div class="flex items-center justify-center gap-1 mt-1">
+                <Heart
+                  v-for="n in 3"
+                  :key="n"
+                  class="w-4 h-4 transition"
+                  :class="n <= rushLives ? 'text-[#B85D43] fill-[#B85D43]' : 'text-zinc-700'"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div v-if="rushHistory.length > 0" class="flex flex-wrap gap-1">
+            <span
+              v-for="(res, idx) in rushHistory"
+              :key="idx"
+              class="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold"
+              :class="res === 'ok' ? 'bg-[#526857] text-white' : 'bg-[#B85D43] text-white'"
+            >
+              {{ res === 'ok' ? '✓' : '✕' }}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[#F7F5F0] text-[#141416] hover:bg-white transition cursor-pointer"
+            @click="startRushRun"
+          >
+            <Play class="w-3.5 h-3.5" />
+            <span>{{ rushActive ? 'Ulangi Sesi Gegas' : 'Mulai Sesi 3 Menit' }}</span>
+          </button>
+        </div>
+
+        <!-- D. Duel Teka-Teki (Puzzle Battle) -->
+        <div
+          v-else-if="activeMode === 'battle'"
+          class="surface-tactile-card rounded-2xl border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] p-5 space-y-4"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-mono text-[10px] uppercase tracking-[0.14em] font-semibold text-[#526857] dark:text-[#9DB5A1]">
+              DUEL HEAD-TO-HEAD
+            </span>
+            <span class="inline-flex items-center gap-1 font-mono text-xs font-bold px-2.5 py-0.5 rounded-md bg-[#141416] text-white dark:bg-[#EDEAE0] dark:text-[#141416]">
+              <Clock class="w-3 h-3" />
+              <span>{{ formatClock(battleTimeLeft) }}</span>
+            </span>
+          </div>
+
+          <!-- Rival Selector (when idle) -->
+          <div v-if="!battleActive" class="space-y-1.5">
+            <span class="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 block">
+              Pilih Lawan Duel:
+            </span>
+            <div class="grid grid-cols-3 gap-1.5">
+              <button
+                v-for="r in BATTLE_RIVALS"
+                :key="r.id"
+                type="button"
+                class="p-2 rounded-xl border text-left transition cursor-pointer"
+                :class="
+                  selectedRivalId === r.id
+                    ? 'bg-[#141416] text-[#F7F5F0] border-[#141416] dark:bg-[#EDEAE0] dark:text-[#141416]'
+                    : 'bg-[#F7F5F0] dark:bg-zinc-900 border-[#E4DFD5] dark:border-zinc-800 text-[#202321] dark:text-zinc-200 hover:border-[#718675]'
+                "
+                @click="selectedRivalId = r.id"
+              >
+                <span class="block text-[11px] font-bold truncate">{{ r.name.split(' ')[0] }}</span>
+                <span class="block font-mono text-[10px] opacity-75">{{ r.elo }} ELO</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Live Head-to-Head Scoreboard -->
+          <div class="rounded-xl border border-[#E4DFD5] dark:border-zinc-800 bg-[#F7F5F0] dark:bg-zinc-900 p-3.5 space-y-2.5">
+            <div class="flex items-center justify-between text-xs font-semibold">
+              <span class="text-[#526857] dark:text-[#9DB5A1]">Anda ({{ battleUserScore }})</span>
+              <span class="font-mono text-[10px] text-zinc-500">
+                Kesalahan: {{ battleUserStrikes }}/3
+              </span>
+              <span class="text-[#B85D43] dark:text-[#E8987E]">{{ selectedRival.name.split(' ')[0] }} ({{ battleRivalScore }})</span>
+            </div>
+            <div class="h-2.5 rounded-full bg-[#E4DFD5] dark:bg-zinc-800 overflow-hidden flex">
+              <div
+                class="bg-[#526857] transition-all duration-300"
+                :style="{
+                  width: `${
+                    battleUserScore + battleRivalScore === 0
+                      ? 50
+                      : Math.round((battleUserScore / (battleUserScore + battleRivalScore)) * 100)
+                  }%`
+                }"
+              />
+              <div class="flex-1 bg-[#B85D43]" />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[#141416] text-white dark:bg-[#EDEAE0] dark:text-[#141416] hover:opacity-92 transition cursor-pointer"
+            @click="startBattleRun"
+          >
+            <Trophy class="w-3.5 h-3.5" />
+            <span>{{ battleActive ? 'Mulai Ulang Duel' : 'Mulai Duel 3 Menit' }}</span>
+          </button>
+        </div>
+
+        <!-- E. Teka-Teki Custom (Filter Studio) -->
+        <div
+          v-else
+          class="surface-tactile-card rounded-2xl border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] p-5 space-y-4"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-mono text-[10px] uppercase tracking-[0.14em] font-semibold text-zinc-500 dark:text-zinc-400">
+              STUDIO FILTER CUSTOM
+            </span>
+            <span class="font-mono text-[11px] font-semibold text-[#526857] dark:text-[#9DB5A1]">
+              {{ activePool.length }} soal cocok
+            </span>
+          </div>
+
+          <div class="space-y-1.5">
+            <span class="text-xs font-semibold text-[#202321] dark:text-zinc-200 block">Tema Taktik</span>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="t in PUZZLE_THEMES"
+                :key="t.key"
+                type="button"
+                :aria-pressed="customThemes.includes(t.key)"
+                class="px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition cursor-pointer"
+                :class="
+                  customThemes.includes(t.key)
+                    ? 'bg-[#526857] text-white border-[#526857]'
+                    : 'bg-[#F7F5F0] dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-[#E4DFD5] dark:border-zinc-800 hover:border-[#718675]'
+                "
+                @click="toggleCustomTheme(t.key)"
+              >
+                {{ t.label }}
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-semibold text-[#202321] dark:text-zinc-200">Rentang Rating ELO</span>
+              <span class="font-mono text-[11px] font-semibold text-[#526857] dark:text-[#9DB5A1]">
+                {{ Math.min(customMinElo, customMaxElo) }} – {{ Math.max(customMinElo, customMaxElo) }}
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="font-mono text-[10px] text-zinc-500 block mb-1">Minimum</label>
+                <input
+                  v-model.number="customMinElo"
+                  type="range"
+                  min="850"
+                  max="2100"
+                  step="50"
+                  class="w-full accent-[#526857] cursor-pointer"
+                />
+              </div>
+              <div>
+                <label class="font-mono text-[10px] text-zinc-500 block mb-1">Maksimum</label>
+                <input
+                  v-model.number="customMaxElo"
+                  type="range"
+                  min="900"
+                  max="2150"
+                  step="50"
+                  class="w-full accent-[#526857] cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="text-[11px] font-semibold text-zinc-500 hover:text-[#202321] dark:hover:text-zinc-200 underline cursor-pointer"
+            @click="resetCustomFilters"
+          >
+            Reset Semua Filter
+          </button>
+        </div>
+
+        <!-- 2. EDITORIAL TACTICAL BRIEF & FEEDBACK CARD -->
+        <div
+          class="surface-tactile-card rounded-2xl border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] p-5 space-y-4"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span
+              class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md font-mono text-[10px] uppercase tracking-[0.12em] font-semibold"
+              :class="
+                feedbackTone === 'success'
+                  ? 'bg-[#526857]/15 text-[#3B5240] dark:text-[#A4CBB3]'
+                  : feedbackTone === 'error'
+                    ? 'bg-[#B85D43]/15 text-[#9B4830] dark:text-[#F0AE98]'
+                    : 'bg-[#F7F5F0] dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-[#E4DFD5] dark:border-zinc-800'
+              "
+            >
+              <CheckCircle2 v-if="feedbackTone === 'success'" class="w-3.5 h-3.5" />
+              <XCircle v-else-if="feedbackTone === 'error'" class="w-3.5 h-3.5" />
+              <Target v-else class="w-3.5 h-3.5" />
+              <span>
+                {{
+                  feedbackTone === 'success'
+                    ? 'Tepat Sekali!'
+                    : feedbackTone === 'error'
+                      ? 'Langkah Kurang Tepat'
+                      : 'Temukan Langkah Terbaik'
+                }}
+              </span>
+            </span>
+
+            <span class="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
+              {{ activeIndex + 1 }} / {{ activePool.length }}
+            </span>
+          </div>
+
+          <h2 class="font-serif text-2xl font-semibold leading-snug text-[#202321] dark:text-[#F4F3EE]">
+            {{ currentPuzzle.title }}
+          </h2>
+
+          <div
+            class="rounded-xl p-4 text-sm leading-relaxed border transition-colors"
             :class="
-              solved
-                ? 'bg-[#4ECDC4]/14 border-[#4ECDC4]/40 text-[#174A46] dark:text-[#C5FAF5]'
-                : 'bg-[#FAF8F5] dark:bg-[#1E1B38] border-[#3B3561]/10 dark:border-white/10 text-[#3B3561] dark:text-[#DDD8F5]'
+              feedbackTone === 'success'
+                ? 'bg-[#526857]/10 border-[#526857]/35 text-[#27382B] dark:text-[#CBE3D1]'
+                : feedbackTone === 'error'
+                  ? 'bg-[#B85D43]/10 border-[#B85D43]/35 text-[#7A3521] dark:text-[#F5C0AF]'
+                  : 'bg-[#F7F5F0] dark:bg-zinc-900/90 border-[#E4DFD5] dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
             "
           >
             {{ feedbackText }}
           </div>
 
-          <div class="grid grid-cols-2 gap-2.5">
-            <button
-              v-if="!solved"
-              type="button"
-              class="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full text-xs font-semibold border border-[#F26B5B]/40 bg-[#F26B5B]/10 text-[#B63A2C] dark:text-[#FFA89D] hover:bg-[#F26B5B] hover:text-white transition cursor-pointer"
-              @click="showHint"
-            >
-              <Lightbulb class="w-4 h-4" />
-              <span>Petunjuk</span>
-            </button>
-            <button
-              v-else
-              type="button"
-              class="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full text-xs font-semibold bg-[#F26B5B] text-white hover:bg-[#DF5949] transition cursor-pointer"
-              @click="nextPuzzle"
-            >
-              <RefreshCw class="w-4 h-4" />
-              <span>Soal Berikutnya</span>
-            </button>
-
-            <button
-              type="button"
-              class="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full text-xs font-semibold border border-[#3B3561]/15 dark:border-white/15 bg-[#FAF8F5] dark:bg-[#1E1B38] text-[#1E1B38] dark:text-[#FAF8F5] hover:border-[#9D8DF1] transition cursor-pointer"
-              @click="solved ? loadCurrentPuzzle() : nextPuzzle()"
-            >
-              <RotateCcw v-if="solved" class="w-4 h-4" />
-              <RefreshCw v-else class="w-4 h-4" />
-              <span>{{ solved ? 'Ulangi' : 'Lewati' }}</span>
-            </button>
-          </div>
-
           <NuxtLink
             :to="`/sandbox?fen=${encodeURIComponent(currentPuzzle.fen)}`"
-            class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold bg-[#3B3561] text-[#FAF8F5] dark:bg-[#9D8DF1] dark:text-[#1E1B38] hover:opacity-92 transition"
+            class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold border border-[#E4DFD5] dark:border-zinc-700 bg-[#F7F5F0] dark:bg-zinc-900 text-[#202321] dark:text-zinc-200 hover:border-[#718675] active:scale-[0.98] transition"
           >
-            <Compass class="w-4 h-4" />
+            <Compass class="w-4 h-4 text-[#526857] dark:text-[#9DB5A1]" />
             <span>Analisis Posisi di Sandbox</span>
           </NuxtLink>
+        </div>
+
+        <!-- 3. COMPACT PUZZLE SELECTOR STRIP (Unlimited & Custom) -->
+        <div
+          v-if="activeMode === 'unlimited' || activeMode === 'custom'"
+          class="rounded-2xl border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] p-4 space-y-2.5"
+        >
+          <div class="flex items-center justify-between">
+            <span class="font-mono text-[10px] uppercase tracking-[0.14em] font-semibold text-zinc-500 dark:text-zinc-400">
+              DAFTAR SOAL ({{ activePool.length }})
+            </span>
+            <span class="font-mono text-[10px] text-zinc-500">Klik nomor untuk lompat</span>
+          </div>
+
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              v-for="(item, idx) in activePool"
+              :key="item.id"
+              type="button"
+              class="w-8 h-8 rounded-lg font-mono text-[11px] font-semibold border transition cursor-pointer"
+              :class="
+                idx === activeIndex
+                  ? 'bg-[#141416] text-white border-[#141416] dark:bg-[#EDEAE0] dark:text-[#141416] ring-2 ring-[#C59B46]/60'
+                  : solvedIds.includes(item.id)
+                    ? 'bg-[#526857]/15 text-[#3B5240] dark:text-[#A4CBB3] border-[#526857]/35 hover:border-[#526857]'
+                    : 'bg-[#F7F5F0] dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-[#E4DFD5] dark:border-zinc-800 hover:border-[#718675]'
+              "
+              :title="`Soal #${item.number}: ${item.title} (${item.rating} ELO)`"
+              @click="selectPuzzleByIndex(idx)"
+            >
+              {{ item.number }}
+            </button>
+          </div>
         </div>
       </div>
     </div>

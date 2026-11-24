@@ -8,6 +8,7 @@ import type {
   EditorialStampKind
 } from '~/components/BoardEffectsLayer.vue'
 import type { TacticalArrow } from '~/components/TacticalArrowOverlay.vue'
+import type { MoveClassification } from '~/utils/gameReviewEngine'
 
 const props = withDefaults(
   defineProps<{
@@ -21,6 +22,7 @@ const props = withDefaults(
     hintFrom?: string | null
     hintTo?: string | null
     arrows?: TacticalArrow[]
+    moveBadge?: { square: string; classification: MoveClassification } | null
     showCenterControlToggle?: boolean
     shake?: boolean
     surfaceTone?: 'light' | 'dark'
@@ -35,6 +37,7 @@ const props = withDefaults(
     hintFrom: null,
     hintTo: null,
     arrows: () => [],
+    moveBadge: null,
     showCenterControlToggle: true,
     shake: false,
     surfaceTone: 'light'
@@ -685,6 +688,18 @@ function getPieceStyle(sq: string) {
               v-if="legalTargetSet.has(item.square) && item.piece"
               class="absolute inset-[6%] rounded-full border-[3.5px] sm:border-[4px] border-zinc-900/28 pointer-events-none z-10"
             />
+
+            <!-- Move Classification Badge (Game Review overlay on destination square) -->
+            <span
+              v-if="moveBadge && moveBadge.square === item.square && !showCenterControl"
+              class="absolute top-0.5 right-0.5 z-30 pointer-events-none"
+            >
+              <MoveClassificationBadge
+                :classification="moveBadge.classification"
+                size="sm"
+                ring
+              />
+            </span>
 
             <!-- Piece -->
             <div

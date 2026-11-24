@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BookOpen, Compass, Crown, Film, Moon, PawPrint, Sun, Swords, Volume2, VolumeX } from 'lucide-vue-next'
+import { BookOpen, Compass, Crown, Film, Moon, PawPrint, Puzzle, Sun, Swords, Volume2, VolumeX } from 'lucide-vue-next'
 import AtelierCommandPalette from '~/components/ui/AtelierCommandPalette.vue'
 import MenuHoverEffects, { type HoverNavItem } from '~/components/ui/MenuHoverEffects.vue'
 import { BOARD_PALETTES, type BoardThemeKey } from '~/composables/useTheme'
@@ -21,9 +21,10 @@ const commandPaletteOpen = ref(false)
 
 const primaryNavItems: HoverNavItem[] = [
   { to: '/dashboard', label: 'Repertoar', icon: BookOpen },
-  { to: '/tactics', label: 'Sinema Taktik', shortLabel: 'Taktik', icon: Film },
+  { to: '/puzzles', label: 'Teka-Teki', shortLabel: 'Teka-Teki', icon: Puzzle },
+  { to: '/tactics', label: 'Sinema Taktik', shortLabel: 'Sinema', icon: Film },
   { to: '/play', label: 'Main Bot / 2P', shortLabel: 'Bot/2P', icon: Swords },
-  { to: '/sandbox', label: 'Sandbox PGN / FEN', shortLabel: 'Sandbox', icon: Compass }
+  { to: '/sandbox', label: 'Sandbox', shortLabel: 'Sandbox', icon: Compass }
 ]
 
 const boardThemeOptions: Array<{ key: BoardThemeKey; swatch: string; label: string }> = [

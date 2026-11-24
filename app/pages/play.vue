@@ -21,6 +21,12 @@ import {
 } from 'lucide-vue-next'
 import type { MatchEvalPoint } from '~/components/MatchReportModal.vue'
 import type { HistoryMoveItem } from '~/components/MoveHistoryPanel.vue'
+import type { TacticalArrow } from '~/components/TacticalArrowOverlay.vue'
+import {
+  analyzeCompletedMatch,
+  type AnalyzedMove,
+  type GameReviewReport
+} from '~/utils/gameReviewEngine'
 import {
   BOT_CATALOG,
   BOT_TIER_GROUPS,
@@ -121,6 +127,81 @@ const evalHistory = ref<MatchEvalPoint[]>([])
 const showMatchReport = ref(false)
 const matchArchived = ref(false)
 
+// Post-match interactive Game Review (Ulasan Permainan)
+const showGameReview = ref(false)
+const isAnalyzingReview = ref(false)
+const reviewAnalysisProgress = ref(0)
+const gameReviewReport = ref<GameReviewReport | null>(null)
+let reviewRunSeq = 0
+
+async function triggerGameReview(openPanel = true) {
+  const mySeq = ++reviewRunSeq
+  if (openPanel) showGameReview.value = true
+  isAnalyzingReview.value = true
+  reviewAnalysisProgress.value = 0
+  gameReviewReport.value = null
+
+  const whiteInfo = playerDisplayInfo('w')
+  const blackInfo = playerDisplayInfo('b')
+
+  try {
+    const report = await analyzeCompletedMatch(snapshots.value, {
+      whiteName: whiteInfo.name,
+      blackName: blackInfo.name,
+      referenceOpponentElo: isVsEngine.value ? activeBot.value.elo : 1200,
+      humanSide: isVsEngine.value ? humanSideInBot.value : 'w',
+      onProgress: (pct) => {
+        if (mySeq === reviewRunSeq) {
+          reviewAnalysisProgress.value = pct
+        }
+      }
+    })
+    if (mySeq === reviewRunSeq) {
+      gameReviewReport.value = report
+    }
+  } finally {
+    if (mySeq === reviewRunSeq) {
+      isAnalyzingReview.value = false
+    }
+  }
+}
+
+const activeReviewedMove = computed<AnalyzedMove | null>(() => {
+  if (!showGameReview.value || !gameReviewReport.value || displayedPly.value <= 0) return null
+  return gameReviewReport.value.moves[displayedPly.value - 1] ?? null
+})
+
+const reviewMoveBadge = computed(() => {
+  const mv = activeReviewedMove.value
+  if (!mv || !mv.to) return null
+  return {
+    square: mv.to,
+    classification: mv.classification
+  }
+})
+
+const reviewArrows = computed<TacticalArrow[]>(() => {
+  const mv = activeReviewedMove.value
+  if (!mv) return []
+  const isSuboptimal =
+    mv.classification === 'inaccuracy' ||
+    mv.classification === 'mistake' ||
+    mv.classification === 'miss' ||
+    mv.classification === 'blunder'
+  if (!isSuboptimal || !mv.bestMoveFrom || !mv.bestMoveTo) return []
+  if (mv.bestMoveFrom === mv.from && mv.bestMoveTo === mv.to) return []
+  return [
+    {
+      from: mv.bestMoveFrom,
+      to: mv.bestMoveTo,
+      tone: 'plan'
+    }
+  ]
+})
+
+const whiteReviewInfo = computed(() => playerDisplayInfo('w'))
+const blackReviewInfo = computed(() => playerDisplayInfo('b'))
+
 function buildMatchPgn(): string {
   const parts: string[] = []
   const moves = snapshots.value.slice(1)
@@ -190,6 +271,7 @@ function archiveMatchToCloud(result: GameResult) {
 watch(gameResult, (nextResult) => {
   if (nextResult) {
     archiveMatchToCloud(nextResult)
+    void triggerGameReview(true)
   }
 })
 
@@ -415,9 +497,6 @@ function finishByTimeout(flaggedColor: Color) {
   } else {
     playSuccessChime(isMuted.value)
   }
-  if (isVsEngine.value) {
-    showMatchReport.value = true
-  }
 }
 
 function checkGameEnd(game: Chess): boolean {
@@ -435,7 +514,6 @@ function checkGameEnd(game: Chess): boolean {
     } else {
       playSuccessChime(isMuted.value)
     }
-    if (isVsEngine.value) showMatchReport.value = true
     return true
   }
 
@@ -447,7 +525,6 @@ function checkGameEnd(game: Chess): boolean {
       winner: 'draw'
     }
     playSuccessChime(isMuted.value)
-    if (isVsEngine.value) showMatchReport.value = true
     return true
   }
 
@@ -459,7 +536,6 @@ function checkGameEnd(game: Chess): boolean {
       winner: 'draw'
     }
     playSuccessChime(isMuted.value)
-    if (isVsEngine.value) showMatchReport.value = true
     return true
   }
 
@@ -471,7 +547,6 @@ function checkGameEnd(game: Chess): boolean {
       winner: 'draw'
     }
     playSuccessChime(isMuted.value)
-    if (isVsEngine.value) showMatchReport.value = true
     return true
   }
 
@@ -483,7 +558,6 @@ function checkGameEnd(game: Chess): boolean {
       winner: 'draw'
     }
     playSuccessChime(isMuted.value)
-    if (isVsEngine.value) showMatchReport.value = true
     return true
   }
 
@@ -583,6 +657,10 @@ function startNewMatch() {
   ]
   showMatchReport.value = false
   matchArchived.value = false
+  showGameReview.value = false
+  isAnalyzingReview.value = false
+  gameReviewReport.value = null
+  reviewRunSeq += 1
   viewingPly.value = null
   isBotThinking.value = false
   gameResult.value = null
@@ -712,7 +790,6 @@ function resignMatch() {
     winner
   }
   playErrorSound(isMuted.value)
-  if (isVsEngine.value) showMatchReport.value = true
 }
 
 function agreeDraw() {
@@ -724,13 +801,16 @@ function agreeDraw() {
     winner: 'draw'
   }
   playSuccessChime(isMuted.value)
-  if (isVsEngine.value) showMatchReport.value = true
 }
 
 function backToSetup() {
   clearTimers()
   matchStarted.value = false
   gameResult.value = null
+  showGameReview.value = false
+  isAnalyzingReview.value = false
+  gameReviewReport.value = null
+  reviewRunSeq += 1
   isBotThinking.value = false
   hintFrom.value = null
   hintTo.value = null
@@ -742,6 +822,10 @@ function switchGameMode(mode: GameMode) {
   gameMode.value = mode
   matchStarted.value = false
   gameResult.value = null
+  showGameReview.value = false
+  isAnalyzingReview.value = false
+  gameReviewReport.value = null
+  reviewRunSeq += 1
 }
 
 onBeforeUnmount(() => {
@@ -907,8 +991,10 @@ onBeforeUnmount(() => {
           :interactive="canInteractBoard"
           :allowed-color="boardAllowedColor"
           :last-move="displayedSnapshot.lastMove"
-          :hint-from="isInspectingHistory ? null : hintFrom"
-          :hint-to="isInspectingHistory ? null : hintTo"
+          :hint-from="isInspectingHistory || showGameReview ? null : hintFrom"
+          :hint-to="isInspectingHistory || showGameReview ? null : hintTo"
+          :arrows="reviewArrows"
+          :move-badge="reviewMoveBadge"
           @move="handleMove"
         />
 
@@ -1054,11 +1140,35 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- Right Sidebar: Setup Panel OR Live Match Panel -->
+      <!-- Right Sidebar: Game Review Panel OR Setup Panel OR Live Match Panel -->
       <div class="lg:col-span-5 space-y-4">
-        <!-- Game Result Banner -->
+        <!-- Interactive Post-Match Game Review Panel ("Ulasan Permainan") -->
+        <GameReviewPanel
+          v-if="gameResult && showGameReview"
+          :report="gameReviewReport"
+          :is-analyzing="isAnalyzingReview"
+          :analysis-progress="reviewAnalysisProgress"
+          :active-ply="displayedPly"
+          :total-plies="latestPly"
+          :white-name="whiteReviewInfo.name"
+          :black-name="blackReviewInfo.name"
+          :white-is-bot="whiteReviewInfo.isBot"
+          :black-is-bot="blackReviewInfo.isBot"
+          :white-avatar-piece="whiteReviewInfo.avatarPiece"
+          :black-avatar-piece="blackReviewInfo.avatarPiece"
+          :result-title="gameResult.title"
+          :result-subtitle="gameResult.subtitle"
+          :human-side="isVsEngine ? humanSideInBot : 'w'"
+          :opponent-elo="isVsEngine ? activeBot.elo : 0"
+          :final-fen="snapshots[latestPly]?.fen ?? displayedSnapshot.fen"
+          @select-ply="viewingPly = $event"
+          @close="showGameReview = false"
+          @rematch="startNewMatch"
+        />
+
+        <!-- Game Result Banner (Shown when Game Review panel is closed) -->
         <div
-          v-if="gameResult"
+          v-else-if="gameResult"
           class="rounded-2xl border p-5 space-y-3"
           :class="
             gameResult.winner === 'draw'
@@ -1079,13 +1189,20 @@ onBeforeUnmount(() => {
           </div>
           <div class="flex flex-wrap gap-2 pt-1">
             <button
-              v-if="isVsEngine"
               type="button"
-              class="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[#526857] text-white hover:bg-[#435648] transition cursor-pointer shadow-sm"
-              @click="showMatchReport = true"
+              class="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[#81B64C] text-white hover:bg-[#71A33F] transition cursor-pointer shadow-sm"
+              @click="
+                () => {
+                  if (!gameReviewReport && !isAnalyzingReview) {
+                    void triggerGameReview(true)
+                  } else {
+                    showGameReview = true
+                  }
+                }
+              "
             >
               <BarChart3 class="w-4 h-4" />
-              <span>Buka Laporan Analisis &amp; Kartu PNG</span>
+              <span>Buka Ulasan Permainan (Analisis Putih &amp; Hitam)</span>
             </button>
             <button
               type="button"
@@ -1440,8 +1557,8 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <!-- LIVE MATCH CONTROLS & HISTORY (Shown while playing) -->
-        <template v-else>
+        <!-- LIVE MATCH CONTROLS & HISTORY (Hidden while Game Review panel is expanded) -->
+        <template v-else-if="!showGameReview">
           <!-- Match Status & Optional Evaluation Meter -->
           <div
             class="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-[#19191D] p-4 space-y-3"

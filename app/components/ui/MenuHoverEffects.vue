@@ -33,7 +33,7 @@ function isActive(to: string): boolean {
   <nav :aria-label="ariaLabel">
     <ul
       class="flex items-center"
-      :class="compact ? 'gap-1' : 'gap-1 xl:gap-2.5'"
+      :class="compact ? 'gap-1' : 'gap-0.5 xl:gap-1.5'"
     >
       <li v-for="item in items" :key="item.to" class="list-none shrink-0">
         <NuxtLink
@@ -45,7 +45,7 @@ function isActive(to: string): boolean {
           <span
             class="relative z-10 inline-flex items-center gap-1.5 uppercase font-sans font-semibold tracking-[0.05em] whitespace-nowrap transition-colors duration-300 motion-reduce:transition-none"
             :class="[
-              compact ? 'text-[11px] py-1.5 px-2.5' : 'text-[11px] xl:text-xs py-2 px-2.5 xl:px-3.5',
+              compact ? 'text-[11px] py-1.5 px-2.5' : 'text-[11px] xl:text-xs py-2 px-2 xl:px-3',
               isActive(item.to)
                 ? 'text-[#F7F5F0] dark:text-[#202321]'
                 : 'text-[#202321]/80 dark:text-zinc-300 group-hover:text-[#F7F5F0] group-focus-visible:text-[#F7F5F0] dark:group-hover:text-[#202321] dark:group-focus-visible:text-[#202321]'
@@ -56,7 +56,11 @@ function isActive(to: string): boolean {
               v-if="item.icon && !compact"
               class="w-3.5 h-3.5 shrink-0 transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none motion-reduce:transform-none"
             />
-            <span>{{ compact && item.shortLabel ? item.shortLabel : item.label }}</span>
+            <span v-if="compact">{{ item.shortLabel ?? item.label }}</span>
+            <template v-else>
+              <span v-if="item.shortLabel" class="xl:hidden">{{ item.shortLabel }}</span>
+              <span :class="item.shortLabel ? 'hidden xl:inline' : ''">{{ item.label }}</span>
+            </template>
           </span>
 
           <!-- Top & bottom border clamp animation -->
