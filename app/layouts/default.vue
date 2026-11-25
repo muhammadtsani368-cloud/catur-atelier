@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { BookOpen, Compass, Crown, Film, Moon, PawPrint, Puzzle, Sun, Swords, Volume2, VolumeX } from 'lucide-vue-next'
+import AtelierBrandLogo from '~/components/ui/AtelierBrandLogo.vue'
 import AtelierCommandPalette from '~/components/ui/AtelierCommandPalette.vue'
 import MenuHoverEffects, { type HoverNavItem } from '~/components/ui/MenuHoverEffects.vue'
 import { BOARD_PALETTES, type BoardThemeKey } from '~/composables/useTheme'
@@ -56,29 +57,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleGlobalShortcut
         <!-- Brand -->
         <NuxtLink
           to="/"
-          class="flex items-center gap-2.5 sm:gap-3 shrink-0 group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F7F5F0] dark:focus-visible:ring-offset-[#121214] active:scale-[0.98] transition-transform"
+          class="shrink-0 group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F7F5F0] dark:focus-visible:ring-offset-[#121214] active:scale-[0.98] transition-transform"
+          aria-label="Grandmaster Atelier — Beranda"
         >
-          <div
-            class="w-9 h-9 shrink-0 rounded-xl bg-[#202321] dark:bg-[#EDEAE0] text-[#F7F5F0] dark:text-[#202321] flex items-center justify-center shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_2px_6px_rgba(32,35,33,0.2)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_2px_6px_rgba(0,0,0,0.4)] transition-transform duration-200 group-hover:scale-105 motion-reduce:transform-none"
-          >
-            <svg viewBox="0 0 24 24" class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v4m-2-2h4" />
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M7 18h10l1.5-6.5c.3-1.4-.7-2.8-2.2-2.8-1.3 0-2.5.8-3.3 2-.8-1.2-2-2-3.3-2-1.5 0-2.5 1.4-2.2 2.8L7 18z"
-              />
-              <path stroke-linecap="round" d="M6 21h12" />
-            </svg>
-          </div>
-          <div class="leading-tight min-w-0">
-            <span class="font-serif text-base sm:text-lg font-semibold tracking-[-0.02em] whitespace-nowrap block">
-              Grandmaster Atelier
-            </span>
-            <span class="hidden xl:block font-mono text-[10px] uppercase tracking-[0.13em] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
-              Studio Repertoar &amp; Babak Akhir
-            </span>
-          </div>
+          <AtelierBrandLogo />
         </NuxtLink>
 
         <!-- Primary Navigation (Menu Hover Effects) -->
