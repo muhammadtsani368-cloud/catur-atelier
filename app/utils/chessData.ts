@@ -193,7 +193,7 @@ export const CURATED_OPENINGS: OpeningModule[] = [
           },
           {
             san: 'Nf6',
-            explanation: 'Pertahanan Berlin — pilihan solid para Grandmaster untuk langsung menekan e4.'
+            explanation: 'Pertahanan Berlin: pilihan solid para Grandmaster untuk langsung menekan e4.'
           },
           {
             san: 'O-O',
@@ -668,7 +668,7 @@ export const CURATED_OPENINGS: OpeningModule[] = [
           {
             san: 'Bf5',
             explanation:
-              'Mengeluarkan gajah terang sebelum memainkan ...e6 — inilah keunggulan utama Caro-Kann atas Pertahanan Prancis!',
+              'Mengeluarkan gajah terang sebelum memainkan ...e6: inilah keunggulan utama Caro-Kann atas Pertahanan Prancis!',
             mistakeHint: 'Keluarkan gajah terang ke f5 sebelum menguncinya dengan ...e6.'
           },
           { san: 'Nf3', explanation: 'Putih mengembangkan kuda secara tenang.' },
@@ -683,7 +683,7 @@ export const CURATED_OPENINGS: OpeningModule[] = [
             san: 'c5',
             explanation:
               'Serangan balik utama! Menyerang pangkal rantai pion Putih di d4 untuk meruntuhkan keunggulan ruangnya.',
-            mistakeHint: 'Jangan bermain terlalu pasif — serang pangkal rantai pion Putih di d4 dengan ...c5.'
+            mistakeHint: 'Jangan bermain terlalu pasif: serang pangkal rantai pion Putih di d4 dengan ...c5.'
           },
           { san: 'Be3', explanation: 'Putih mempertahankan d4.' },
           {
@@ -804,7 +804,7 @@ export const CURATED_OPENINGS: OpeningModule[] = [
             explanation: 'Merebut pion pusat sambil membuka lajur e terhadap raja Hitam.',
             mistakeHint: 'Rebut pion d5 dengan pion e4.'
           },
-          { san: 'Na5', explanation: 'Variasi Polerio — Hitam menyerang gajah c4 demi inisiatif.' },
+          { san: 'Na5', explanation: 'Variasi Polerio: Hitam menyerang gajah c4 demi inisiatif.' },
           {
             san: 'Bb5+',
             explanation:
@@ -1043,7 +1043,7 @@ export const CURATED_OPENINGS: OpeningModule[] = [
           {
             san: 'Bxc3+',
             explanation:
-              'Menciptakan pion tumpuk permanen di lajur c Putih — kompensasi strategis jangka panjang atas pasangan gajah lawan.',
+              'Menciptakan pion tumpuk permanen di lajur c Putih: kompensasi strategis jangka panjang atas pasangan gajah lawan.',
             mistakeHint: 'Tukar gajah dengan kuda c3 untuk merusak struktur pion sayap menteri Putih.'
           },
           { san: 'bxc3', explanation: 'Putih merebut balik.' },
@@ -1212,10 +1212,10 @@ export const CURATED_ENDGAMES: EndgameModule[] = [
     scenarios: [
       {
         id: 'lucena-bridge',
-        title: 'Posisi Lucena — Membangun Jembatan',
+        title: 'Posisi Lucena: Membangun Jembatan',
         side: 'w',
         fen: '1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1',
-        objective: 'Putih jalan dan menang — usir raja Hitam lalu bangun jembatan benteng di baris ke-4',
+        objective: 'Putih jalan dan menang: usir raja Hitam lalu bangun jembatan benteng di baris ke-4',
         goalType: 'win',
         recommendedFirstMoves: ['Rd1+'],
         coachingHint:
@@ -1228,10 +1228,10 @@ export const CURATED_ENDGAMES: EndgameModule[] = [
       },
       {
         id: 'philidor-defense',
-        title: 'Posisi Philidor — Pertahanan Baris ke-6',
+        title: 'Posisi Philidor: Pertahanan Baris ke-6',
         side: 'b',
         fen: '4k3/R7/8/3PK3/8/8/8/1r6 b - - 0 1',
-        objective: 'Hitam jalan dan remis — pertahankan baris ke-6 lalu serang dari belakang jika pion maju',
+        objective: 'Hitam jalan dan remis: pertahankan baris ke-6 lalu serang dari belakang jika pion maju',
         goalType: 'draw',
         targetDrawPlies: 16,
         recommendedFirstMoves: ['Rb6'],
@@ -1261,7 +1261,7 @@ export const CURATED_ENDGAMES: EndgameModule[] = [
         title: 'Petak Kunci & Outflanking (Menang)',
         side: 'w',
         fen: '4k3/8/8/4K3/4P3/8/8/8 w - - 0 1',
-        objective: 'Putih jalan dan menang — rebut petak kunci di baris ke-6 sebelum mendorong pion',
+        objective: 'Putih jalan dan menang: rebut petak kunci di baris ke-6 sebelum mendorong pion',
         goalType: 'win',
         recommendedFirstMoves: ['Kd6', 'Kf6', 'Ke6'],
         coachingHint:
@@ -1277,7 +1277,7 @@ export const CURATED_ENDGAMES: EndgameModule[] = [
         title: 'Pertahanan Oposisi Langsung (Remis)',
         side: 'b',
         fen: '4k3/8/8/4P3/4K3/8/8/8 b - - 0 1',
-        objective: 'Hitam jalan dan remis — ambil oposisi langsung agar raja Putih gagal menembus',
+        objective: 'Hitam jalan dan remis: ambil oposisi langsung agar raja Putih gagal menembus',
         goalType: 'draw',
         targetDrawPlies: 14,
         recommendedFirstMoves: ['Ke7'],
@@ -1307,7 +1307,7 @@ export const CURATED_ENDGAMES: EndgameModule[] = [
         title: 'Skakmat Raja + Menteri vs Raja',
         side: 'w',
         fen: '4k3/8/8/8/8/4K3/8/3Q4 w - - 0 1',
-        objective: 'Putih jalan dan skakmat — jepit raja Hitam ke tepi papan lalu dekatkan raja Putih',
+        objective: 'Putih jalan dan skakmat: jepit raja Hitam ke tepi papan lalu dekatkan raja Putih',
         goalType: 'win',
         recommendedFirstMoves: ['Qd6', 'Qd5', 'Qh5'],
         coachingHint:
@@ -1323,14 +1323,14 @@ export const CURATED_ENDGAMES: EndgameModule[] = [
         title: 'Skakmat Raja + Benteng vs Raja',
         side: 'w',
         fen: '4k3/8/8/8/8/4K3/8/R7 w - - 0 1',
-        objective: 'Putih jalan dan skakmat — potong raja Hitam dengan benteng dan paksa oposisi',
+        objective: 'Putih jalan dan skakmat: potong raja Hitam dengan benteng dan paksa oposisi',
         goalType: 'win',
         recommendedFirstMoves: ['Ra7', 'Ra6', 'Kd4'],
         coachingHint:
           'Potong ruang gerak Raja Hitam di baris ke-7 (1. Ra7!) sehingga ia terkurung di baris ke-8, lalu majukan Raja Anda untuk meraih oposisi dan memberi skakmat!',
         principles: [
           'Gunakan Benteng untuk memotong Raja lawan ke area sekecil mungkin (mis. 1. Ra7!).',
-          'Bawa Raja Anda berhadapan langsung (oposisi) dengan Raja lawan — ketika lawan terpaksa berdiri tepat di depan Raja Anda, berikan skak dari samping!',
+          'Bawa Raja Anda berhadapan langsung (oposisi) dengan Raja lawan: ketika lawan terpaksa berdiri tepat di depan Raja Anda, berikan skak dari samping!',
           'Jika giliran tidak pas (tempo salah), lakukan satu langkah tunggu kecil dengan Benteng di baris yang sama.'
         ]
       }
@@ -1352,7 +1352,7 @@ export const CURATED_ENDGAMES: EndgameModule[] = [
         title: 'Terobosan 3 Pion vs 3 Pion (Putih Menang)',
         side: 'w',
         fen: '8/5ppp/8/5PPP/8/k7/8/K7 w - - 0 1',
-        objective: 'Putih jalan dan menang — temukan pengorbanan pion terobosan untuk promosi tak terhentikan!',
+        objective: 'Putih jalan dan menang: temukan pengorbanan pion terobosan untuk promosi tak terhentikan!',
         goalType: 'win',
         recommendedFirstMoves: ['g6'],
         coachingHint:
@@ -1365,10 +1365,10 @@ export const CURATED_ENDGAMES: EndgameModule[] = [
       },
       {
         id: 'outside-passed-pawn',
-        title: 'Pion Bebas Jauh — Hitam Menang',
+        title: 'Pion Bebas Jauh: Hitam Menang',
         side: 'b',
         fen: '8/p5pp/8/2k5/8/2K5/5PPP/8 b - - 0 1',
-        objective: 'Hitam jalan dan menang — gunakan pion bebas a7 untuk menarik raja Putih lalu serbu sayap raja',
+        objective: 'Hitam jalan dan menang: gunakan pion bebas a7 untuk menarik raja Putih lalu serbu sayap raja',
         goalType: 'win',
         recommendedFirstMoves: ['a5', 'Kd5', 'Kb5'],
         coachingHint:

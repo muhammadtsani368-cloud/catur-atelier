@@ -19,25 +19,25 @@ export const BOARD_PALETTES: Record<BoardThemeKey, BoardPalette> = {
     key: 'sage',
     label: 'Sage Atelier',
     light: '#EDEAE0',
-    dark: '#738578',
-    coordOnLight: '#586A5D',
-    coordOnDark: '#EDEAE0'
+    dark: '#647669',
+    coordOnLight: '#3F5044',
+    coordOnDark: '#FAF8F4'
   },
   walnut: {
     key: 'walnut',
     label: 'Walnut Klasik',
     light: '#F0EBE1',
-    dark: '#8B6F56',
-    coordOnLight: '#6F5641',
-    coordOnDark: '#F0EBE1'
+    dark: '#7A6049',
+    coordOnLight: '#523E2D',
+    coordOnDark: '#FAF6EE'
   },
   stone: {
     key: 'stone',
     label: 'Slate Mineral',
     light: '#EAEAE6',
-    dark: '#6E747B',
-    coordOnLight: '#50555B',
-    coordOnDark: '#EAEAE6'
+    dark: '#62686F',
+    coordOnLight: '#3F444A',
+    coordOnDark: '#F7F7F5'
   }
 }
 

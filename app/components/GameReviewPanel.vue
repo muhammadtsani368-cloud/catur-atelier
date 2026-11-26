@@ -1,22 +1,24 @@
 <script setup lang="ts">
 import type { Color, PieceSymbol } from 'chess.js'
 import {
+  Award,
   BookmarkPlus,
   ChevronFirst,
   ChevronLast,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Cpu,
   Download,
+  Home,
   ListChecks,
   RotateCcw,
   Search,
-  Sparkles,
-  Star,
   Volume2,
   VolumeX,
   X
 } from 'lucide-vue-next'
+import type { AdaptiveLensId } from '~/utils/adaptiveLensEngine'
 import {
   CLASSIFICATION_MAP,
   MOVE_CLASSIFICATIONS,
@@ -25,6 +27,12 @@ import {
   type MoveClassification
 } from '~/utils/gameReviewEngine'
 import { exportAchievementCardPng } from '~/utils/matchCardCanvas'
+import {
+  formatMoveCommentForLens,
+  generateSocraticReview,
+  suggestCandidatesForFen
+} from '~/utils/socraticCoachEngine'
+import type { WhatIfSessionState } from '~/utils/whatIfSimulator'
 
 const props = defineProps<{
   report: GameReviewReport | null
@@ -43,21 +51,36 @@ const props = defineProps<{
   humanSide: Color
   opponentElo: number
   finalFen: string
+  lens: AdaptiveLensId
+  whatIfSession: WhatIfSessionState | null
+  whatIfError?: string | null
+  whatIfAutoReply?: boolean
 }>()
 
 const emit = defineEmits<{
   selectPly: [ply: number]
   close: []
   rematch: []
+  updateLens: [lens: AdaptiveLensId]
+  startWhatIf: [candidateSan?: string]
+  playWhatIfCandidate: [san: string]
+  playWhatIfOpponentReply: []
+  toggleWhatIfAutoReply: []
+  rewindWhatIf: []
+  resetWhatIf: []
+  closeWhatIf: []
+  backToSetup: []
+  mainMenu: []
 }>()
 
 const { isMuted, toggleMute, currentBoardPalette, pieceSet, isDark } = useTheme()
 const { progress, recordMistake } = useChessProgress()
 
 const activeTab = ref<'summary' | 'moves'>('summary')
-const moveFilter = ref<'all' | 'w' | 'b' | 'errors'>('all')
+const moveFilter = ref<'all' | 'mine' | 'w' | 'b' | 'errors'>('all')
 const savedMistakePly = ref<number | null>(null)
 const exportedNotice = ref(false)
+const copiedSummaryNotice = ref(false)
 const categoryJumpIndex = ref<Record<string, number>>({})
 
 const activeMove = computed<AnalyzedMove | null>(() => {
@@ -65,9 +88,23 @@ const activeMove = computed<AnalyzedMove | null>(() => {
   return props.report.moves[props.activePly - 1] ?? null
 })
 
+const activeMoveComment = computed<string>(() => {
+  if (!activeMove.value) return ''
+  return formatMoveCommentForLens(activeMove.value, props.lens, props.humanSide)
+})
+
+const activeSuggestedCandidates = computed<string[]>(() => {
+  if (props.whatIfSession) {
+    return suggestCandidatesForFen(props.whatIfSession.currentFen, 8)
+  }
+  if (!activeMove.value) return []
+  return generateSocraticReview(activeMove.value, props.lens, props.humanSide).suggestedCandidates
+})
+
 const filteredMoves = computed<AnalyzedMove[]>(() => {
   if (!props.report) return []
   const list = props.report.moves
+  if (moveFilter.value === 'mine') return list.filter((m) => m.color === props.humanSide)
   if (moveFilter.value === 'w') return list.filter((m) => m.color === 'w')
   if (moveFilter.value === 'b') return list.filter((m) => m.color === 'b')
   if (moveFilter.value === 'errors') {
@@ -213,25 +250,69 @@ function handleDownloadCard() {
       ? props.report?.whiteGameRating ?? 1000
       : props.report?.blackGameRating ?? 1000
 
+  // Spotlight either the currently inspected move or the player's finest brilliant/great/best move
+  const inspected = activeMove.value
+  const finestHumanMove =
+    inspected ??
+    props.report?.moves.find(
+      (m) =>
+        m.color === props.humanSide &&
+        (m.classification === 'brilliant' || m.classification === 'great' || m.isMate)
+    ) ??
+    props.report?.moves.find((m) => m.color === props.humanSide && m.classification === 'best') ??
+    null
+
+  const spotlightFen = finestHumanMove ? finestHumanMove.afterFen : props.finalFen
+  const highlightSan = finestHumanMove
+    ? `${finestHumanMove.moveNumber}${finestHumanMove.color === 'w' ? '.' : '...'} ${finestHumanMove.san}`
+    : undefined
+  const highlightLabel = finestHumanMove
+    ? CLASSIFICATION_MAP[finestHumanMove.classification].labelId
+    : undefined
+
   const ok = exportAchievementCardPng({
     title: props.resultTitle,
     subtitle: `${props.whiteName} vs ${props.blackName} · ${props.resultSubtitle}`,
-    badgeLabel: 'Ulasan Permainan',
-    fen: props.finalFen,
+    badgeLabel: 'Poster Partai Atelier',
+    fen: spotlightFen,
     orientation: props.humanSide,
     accuracyPercent: acc,
     streakDays: progress.value.streakDays,
     extraMetricLabel: 'Rating Permainan',
     extraMetricValue: `${rating} ELO`,
+    highlightSan,
+    highlightLabel,
     palette: currentBoardPalette.value,
     pieceSet: pieceSet.value,
-    theme: isDark.value ? 'cosmic' : 'cream'
+    theme: isDark.value ? 'editorial-dark' : 'editorial-light',
+    filename: 'grandmaster-atelier-poster-partai.png'
   })
   if (ok) {
     exportedNotice.value = true
     setTimeout(() => {
       exportedNotice.value = false
     }, 2400)
+  }
+}
+
+async function handleCopySummary() {
+  if (!props.report || typeof navigator === 'undefined' || !navigator.clipboard) return
+  const r = props.report
+  const lines = [
+    `Grandmaster Atelier · Ulasan Permainan`,
+    `${props.whiteName} (Putih) vs ${props.blackName} (Hitam)`,
+    `Hasil: ${props.resultTitle}`,
+    `Akurasi: Putih ${Math.round(r.whiteAccuracy)}% (${r.whiteGameRating} ELO) | Hitam ${Math.round(r.blackAccuracy)}% (${r.blackGameRating} ELO)`,
+    `Total Langkah: ${props.totalPlies} ply`
+  ]
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'))
+    copiedSummaryNotice.value = true
+    setTimeout(() => {
+      copiedSummaryNotice.value = false
+    }, 2200)
+  } catch {
+    // Ignore clipboard permission errors
   }
 }
 
@@ -323,7 +404,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboardNav))
     <!-- Loading Progress State -->
     <div v-if="isAnalyzing || !report" class="p-6 space-y-4 text-center">
       <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/8 text-xs font-medium text-[#A4CBB3]">
-        <Sparkles class="w-3.5 h-3.5 animate-pulse" />
+        <Search class="w-3.5 h-3.5" aria-hidden="true" />
         <span>Menganalisis setiap langkah Putih &amp; Hitam...</span>
       </div>
       <div class="w-full h-2.5 rounded-full bg-white/10 overflow-hidden">
@@ -338,7 +419,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboardNav))
     </div>
 
     <!-- Full Loaded Review Body -->
-    <div v-else class="p-4 space-y-3.5 max-h-[760px] overflow-y-auto">
+    <div v-else class="p-4 space-y-3.5 max-h-[780px] overflow-y-auto">
+      <!-- Adaptive Lens Switcher inside Review -->
+      <AdaptiveLensSwitcher
+        :model-value="lens"
+        surface="dark-panel"
+        compact
+        @update:model-value="emit('updateLens', $event)"
+      />
       <!-- Coach Avatar + Crisp White Speech Bubble -->
       <div class="flex items-start gap-3">
         <!-- Editorial Coach Avatar -->
@@ -393,7 +481,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboardNav))
             </div>
 
             <p class="text-xs leading-relaxed text-zinc-700">
-              {{ activeMove.commentId }}
+              {{ activeMoveComment }}
             </p>
 
             <!-- Best Move Suggestion & Save to Mistake Queue -->
@@ -421,14 +509,42 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboardNav))
             </div>
           </div>
 
-          <div v-else class="relative space-y-0.5">
+          <div v-else class="relative space-y-1.5">
             <p class="text-xs font-bold text-[#1E201E]">{{ report.coachHeadline }}</p>
             <p class="text-xs leading-relaxed text-zinc-700">
               {{ report.coachSummary }}
             </p>
+            <p class="text-[11px] font-medium text-[#3B5240]">
+              Klik langkah di grafik atau gunakan navigasi untuk membuka Refleksi Sokratik dan Simulator What-If.
+            </p>
           </div>
         </div>
       </div>
+
+      <!-- Socratic Coach Dialogue & Interactive What-If Simulator -->
+      <SocraticDialogueCard
+        v-if="activeMove"
+        :move="activeMove"
+        :lens="lens"
+        :human-side="humanSide"
+        :what-if-active="Boolean(whatIfSession)"
+        @launch-what-if="emit('startWhatIf', $event)"
+        @rewind-to-human-turn="emit('selectPly', Math.max(0, activePly - 1))"
+      />
+
+      <WhatIfSimulatorPanel
+        v-if="whatIfSession"
+        :session="whatIfSession"
+        :suggested-candidates="activeSuggestedCandidates"
+        :error-message="whatIfError ?? null"
+        :auto-reply-enabled="whatIfAutoReply ?? true"
+        @play-candidate="emit('playWhatIfCandidate', $event)"
+        @play-opponent-reply="emit('playWhatIfOpponentReply')"
+        @toggle-auto-reply="emit('toggleWhatIfAutoReply')"
+        @rewind-ply="emit('rewindWhatIf')"
+        @reset-origin="emit('resetWhatIf')"
+        @close="emit('closeWhatIf')"
+      />
 
       <!-- Interactive Advantage Graph with Colored Critical Dots -->
       <div class="space-y-1.5">
@@ -613,8 +729,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboardNav))
             {{ report.skillLeader === 'w' ? `+${report.skillDelta}` : '' }}
           </span>
           <div class="flex justify-center">
-            <span class="w-5 h-5 rounded-full bg-[#3897F0] text-white inline-flex items-center justify-center">
-              <Star class="w-3 h-3" fill="currentColor" />
+            <span class="w-5 h-5 rounded-full bg-[#3F5344] text-white inline-flex items-center justify-center">
+              <Award class="w-3 h-3" aria-hidden="true" />
             </span>
           </div>
           <span class="text-center font-mono text-xs font-bold text-[#4EA4F5]">
@@ -731,6 +847,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboardNav))
           <button
             v-for="f in [
               { key: 'all', label: 'Semua' },
+              { key: 'mine', label: 'Langkah Saya' },
               { key: 'w', label: `Putih (${whiteName})` },
               { key: 'b', label: `Hitam (${blackName})` },
               { key: 'errors', label: 'Kesalahan & Blunder' }
@@ -743,7 +860,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboardNav))
                 ? 'bg-[#81B64C] text-white border-[#81B64C]'
                 : 'bg-white/[0.05] text-zinc-300 border-white/10 hover:bg-white/10'
             "
-            @click="moveFilter = f.key as 'all' | 'w' | 'b' | 'errors'"
+            @click="moveFilter = f.key as 'all' | 'mine' | 'w' | 'b' | 'errors'"
           >
             {{ f.label }}
           </button>
@@ -814,29 +931,56 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeyboardNav))
     >
       <button
         type="button"
-        class="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#81B64C] text-white hover:bg-[#71A33F] active:scale-[0.98] transition cursor-pointer shadow-sm"
+        class="min-h-[44px] flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#3F5344] text-white hover:bg-[#334438] active:scale-[0.98] transition cursor-pointer shadow-sm"
         @click="startWalkthrough"
       >
-        <ListChecks class="w-4 h-4" />
+        <ListChecks class="w-4 h-4" aria-hidden="true" />
         <span>Tinjau Langkah</span>
       </button>
 
       <button
         type="button"
-        class="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white/10 text-white hover:bg-white/16 border border-white/10 transition cursor-pointer"
+        class="min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white/10 text-white hover:bg-white/16 border border-white/10 transition cursor-pointer"
         @click="handleDownloadCard"
       >
-        <Download class="w-3.5 h-3.5" />
-        <span>{{ exportedNotice ? 'PNG Diunduh!' : 'Kartu PNG' }}</span>
+        <Download class="w-3.5 h-3.5" aria-hidden="true" />
+        <span>{{ exportedNotice ? 'Poster Diunduh!' : 'Poster Editorial' }}</span>
       </button>
 
       <button
         type="button"
-        class="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white/10 text-white hover:bg-white/16 border border-white/10 transition cursor-pointer"
+        class="min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white/10 text-white hover:bg-white/16 border border-white/10 transition cursor-pointer"
+        @click="handleCopySummary"
+      >
+        <Copy class="w-3.5 h-3.5" aria-hidden="true" />
+        <span>{{ copiedSummaryNotice ? 'Tersalin!' : 'Salin Ringkasan' }}</span>
+      </button>
+
+      <button
+        type="button"
+        class="min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white/10 text-white hover:bg-white/16 border border-white/10 transition cursor-pointer"
         @click="emit('rematch')"
       >
-        <RotateCcw class="w-3.5 h-3.5" />
-        <span>Ulang</span>
+        <RotateCcw class="w-3.5 h-3.5" aria-hidden="true" />
+        <span>Tanding Ulang</span>
+      </button>
+
+      <button
+        type="button"
+        class="min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white/10 text-white hover:bg-white/16 border border-white/10 transition cursor-pointer"
+        @click="emit('backToSetup')"
+      >
+        <ChevronLeft class="w-3.5 h-3.5" aria-hidden="true" />
+        <span>Ubah Pengaturan</span>
+      </button>
+
+      <button
+        type="button"
+        class="min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white/10 text-white hover:bg-white/16 border border-white/10 transition cursor-pointer"
+        @click="emit('mainMenu')"
+      >
+        <Home class="w-3.5 h-3.5" aria-hidden="true" />
+        <span>Menu Utama</span>
       </button>
     </div>
   </section>

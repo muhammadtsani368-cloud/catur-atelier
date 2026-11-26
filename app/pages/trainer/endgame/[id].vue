@@ -162,7 +162,7 @@ function checkOutcome(game: Chess, promotedByUser = false): boolean {
       feedbackState.value = 'mistake'
       feedbackTitle.value = 'Anda Terkena Skakmat'
       feedbackMessage.value =
-        'Jangan khawatir — gunakan "Mundur 1 Langkah" atau "Ulangi Posisi" untuk memperbaiki manuver raja dan perwira Anda.'
+        'Jangan khawatir: gunakan "Mundur 1 Langkah" atau "Ulangi Posisi" untuk memperbaiki manuver raja dan perwira Anda.'
     }
     return true
   }
@@ -199,7 +199,7 @@ function checkOutcome(game: Chess, promotedByUser = false): boolean {
     markLineMastered(sc.id)
     playSuccessChime(isMuted.value)
     feedbackState.value = 'completed'
-    feedbackTitle.value = 'Pertahanan Sempurna — Target Remis Tercapai!'
+    feedbackTitle.value = 'Pertahanan Sempurna: Target Remis Tercapai!'
     feedbackMessage.value =
       'Anda berhasil menetralkan serangan lawan dengan teknik babak akhir yang tepat. Anda tetap dapat terus bermain atau beralih ke skenario lain.'
     return false
@@ -212,7 +212,7 @@ function checkOutcome(game: Chess, promotedByUser = false): boolean {
     markLineMastered(sc.id)
     playSuccessChime(isMuted.value)
     feedbackState.value = 'completed'
-    feedbackTitle.value = 'Promosi Sukses — Teknik Dikuasai!'
+    feedbackTitle.value = 'Promosi Sukses: Teknik Dikuasai!'
     feedbackMessage.value =
       'Luar biasa! Pion Anda berhasil promosi dengan keunggulan mutlak. Lanjutkan hingga skakmat atau latih skenario berikutnya.'
     return false

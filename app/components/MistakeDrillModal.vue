@@ -2,6 +2,7 @@
 import { Chess, type PieceSymbol, type Square } from 'chess.js'
 import { CheckCircle2, Lightbulb, RotateCcw, Sparkles, X } from 'lucide-vue-next'
 import type { MistakeQueueItem } from '~/composables/useChessProgress'
+import { markDailyRoutineTaskComplete } from '~/utils/dailyRoutine'
 import {
   playCheckSound,
   playErrorSound,
@@ -114,6 +115,7 @@ function handleMove(payload: { from: Square; to: Square; promotion?: PieceSymbol
     setTimeout(() => playSuccessChime(isMuted.value), 160)
 
     resolveMistake(item.id)
+    markDailyRoutineTaskComplete('match-or-tactics')
     advanceTimer = setTimeout(() => {
       loadNextFromQueue()
     }, 1050)

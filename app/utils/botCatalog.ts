@@ -85,12 +85,12 @@ export const BOT_CATALOG: BotCatalogEntry[] = [
     descriptionId:
       'Sering melangkah secara spontan tanpa menghitung ancaman balik. Cocok untuk pemanasan atau latihan pola skakmat dasar.',
     avatarPiece: { type: 'p', color: 'w' },
-    accentColor: '#7B8E7F',
+    accentColor: '#4A5D4E',
     depth: 1,
-    randomness: 0.92,
+    randomness: 0.96,
     aggression: 0.35,
     timeBudgetMs: 45,
-    blunderRate: 0.56,
+    blunderRate: 0.68,
     useBook: false,
     useQuiescence: false
   },
@@ -104,12 +104,12 @@ export const BOT_CATALOG: BotCatalogEntry[] = [
     descriptionId:
       'Sudah memahami nilai bidak dasar namun sering melewatkan pin atau garpu sederhana. Ideal untuk melatih ketelitian menangkap perwira gratis.',
     avatarPiece: { type: 'p', color: 'b' },
-    accentColor: '#718675',
+    accentColor: '#445749',
     depth: 1,
-    randomness: 0.78,
+    randomness: 0.86,
     aggression: 0.3,
-    timeBudgetMs: 60,
-    blunderRate: 0.38,
+    timeBudgetMs: 55,
+    blunderRate: 0.48,
     useBook: false,
     useQuiescence: false
   },
@@ -123,12 +123,12 @@ export const BOT_CATALOG: BotCatalogEntry[] = [
     descriptionId:
       'Gemar mendorong pion dan mengeluarkan Menteri lebih awal. Serangannya bisa merepotkan jika lengah, namun mudah dihukum dengan pengembangan rapi.',
     avatarPiece: { type: 'n', color: 'w' },
-    accentColor: '#667C6B',
+    accentColor: '#3F5244',
     depth: 1,
-    randomness: 0.62,
+    randomness: 0.72,
     aggression: 0.68,
-    timeBudgetMs: 75,
-    blunderRate: 0.24,
+    timeBudgetMs: 70,
+    blunderRate: 0.32,
     useBook: false,
     useQuiescence: false
   },
@@ -146,10 +146,10 @@ export const BOT_CATALOG: BotCatalogEntry[] = [
     avatarPiece: { type: 'n', color: 'b' },
     accentColor: '#5D7463',
     depth: 2,
-    randomness: 0.45,
+    randomness: 0.56,
     aggression: 0.42,
-    timeBudgetMs: 95,
-    blunderRate: 0.14,
+    timeBudgetMs: 90,
+    blunderRate: 0.22,
     useBook: false,
     useQuiescence: false
   },
@@ -165,10 +165,10 @@ export const BOT_CATALOG: BotCatalogEntry[] = [
     avatarPiece: { type: 'b', color: 'w' },
     accentColor: '#526857',
     depth: 2,
-    randomness: 0.3,
+    randomness: 0.38,
     aggression: 0.35,
     timeBudgetMs: 120,
-    blunderRate: 0.08,
+    blunderRate: 0.12,
     useBook: true,
     useQuiescence: false
   },
@@ -184,12 +184,12 @@ export const BOT_CATALOG: BotCatalogEntry[] = [
     avatarPiece: { type: 'b', color: 'b' },
     accentColor: '#495E4E',
     depth: 2,
-    randomness: 0.2,
+    randomness: 0.24,
     aggression: 0.58,
-    timeBudgetMs: 150,
-    blunderRate: 0.03,
+    timeBudgetMs: 155,
+    blunderRate: 0.05,
     useBook: true,
-    useQuiescence: false
+    useQuiescence: true
   },
 
   // 3. Lanjutan (1500 - 1900)
@@ -203,7 +203,7 @@ export const BOT_CATALOG: BotCatalogEntry[] = [
     descriptionId:
       'Menghitung pertukaran taktis dengan quiescence search dan gemar membuka lajur untuk menyerang posisi rokade lawan.',
     avatarPiece: { type: 'r', color: 'w' },
-    accentColor: '#8B6F56',
+    accentColor: '#6E543E',
     depth: 3,
     randomness: 0.14,
     aggression: 0.74,
@@ -241,7 +241,7 @@ export const BOT_CATALOG: BotCatalogEntry[] = [
     descriptionId:
       'Pemain turnamen tangguh yang memadukan teori pembukaan tajam dengan serangan balik cepat saat lawan terlalu pasif.',
     avatarPiece: { type: 'q', color: 'w' },
-    accentColor: '#9E5840',
+    accentColor: '#8F4630',
     depth: 3,
     randomness: 0.06,
     aggression: 0.66,
@@ -262,7 +262,7 @@ export const BOT_CATALOG: BotCatalogEntry[] = [
     descriptionId:
       'Memainkan jalur pembukaan utama secara akurat, menjaga koordinasi perwira, dan sangat teliti dalam transisi menuju babak akhir.',
     avatarPiece: { type: 'q', color: 'b' },
-    accentColor: '#B85D43',
+    accentColor: '#9B452C',
     depth: 3,
     randomness: 0.03,
     aggression: 0.52,
@@ -446,7 +446,7 @@ export function buildCustomEngineBot(rawElo: number): BotCatalogEntry {
       type: elo >= 2500 ? 'k' : elo >= 1800 ? 'q' : elo >= 1200 ? 'r' : elo >= 700 ? 'n' : 'p',
       color: 'b'
     },
-    accentColor: elo >= 2500 ? '#18181B' : elo >= 1800 ? '#B85D43' : '#526857',
+    accentColor: elo >= 2500 ? '#18181B' : elo >= 1800 ? '#9B452C' : '#3F5344',
     depth,
     randomness,
     aggression: elo >= 2200 ? 0.65 : 0.5,

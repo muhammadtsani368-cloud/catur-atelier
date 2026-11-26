@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BookOpen, Check, Star, ThumbsUp, X } from 'lucide-vue-next'
+import { BookOpen, Check, Target, ThumbsUp, X } from 'lucide-vue-next'
 import { CLASSIFICATION_MAP, type MoveClassification } from '~/utils/gameReviewEngine'
 
 const props = withDefaults(
@@ -37,11 +37,11 @@ const iconSizeClass = computed(() => {
     :title="meta.labelId"
     :aria-label="meta.labelId"
   >
-    <BookOpen v-if="classification === 'book'" :class="iconSizeClass" :stroke-width="2.4" />
-    <Star v-else-if="classification === 'best'" :class="iconSizeClass" fill="currentColor" :stroke-width="2" />
-    <ThumbsUp v-else-if="classification === 'excellent'" :class="iconSizeClass" fill="currentColor" :stroke-width="1.8" />
-    <Check v-else-if="classification === 'good'" :class="iconSizeClass" :stroke-width="3" />
-    <X v-else-if="classification === 'miss'" :class="iconSizeClass" :stroke-width="3" />
+    <BookOpen v-if="classification === 'book'" :class="iconSizeClass" :stroke-width="2.4" aria-hidden="true" />
+    <Target v-else-if="classification === 'best'" :class="iconSizeClass" :stroke-width="2.3" aria-hidden="true" />
+    <ThumbsUp v-else-if="classification === 'excellent'" :class="iconSizeClass" fill="currentColor" :stroke-width="1.8" aria-hidden="true" />
+    <Check v-else-if="classification === 'good'" :class="iconSizeClass" :stroke-width="3" aria-hidden="true" />
+    <X v-else-if="classification === 'miss'" :class="iconSizeClass" :stroke-width="3" aria-hidden="true" />
     <span v-else class="tracking-tighter font-sans">{{ meta.symbol }}</span>
   </span>
 </template>

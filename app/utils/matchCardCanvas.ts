@@ -11,9 +11,11 @@ export interface AchievementCardOptions {
   streakDays: number
   extraMetricLabel?: string
   extraMetricValue?: string
+  highlightSan?: string
+  highlightLabel?: string
   palette: BoardPalette
   pieceSet: PieceSetKey
-  theme?: 'cosmic' | 'cream'
+  theme?: 'editorial-dark' | 'editorial-light' | 'cosmic' | 'cream'
   filename?: string
 }
 
@@ -239,119 +241,163 @@ export function exportAchievementCardPng(options: AchievementCardOptions): boole
   const ctx = canvas.getContext('2d')
   if (!ctx) return false
 
-  const isCosmic = (options.theme ?? 'cosmic') === 'cosmic'
-  const bg = isCosmic ? '#1E1B38' : '#FAF8F5'
-  const cardSurface = isCosmic ? '#2A264A' : '#FFFFFF'
-  const ink = isCosmic ? '#FAF8F5' : '#1E1B38'
-  const inkMuted = isCosmic ? '#C4C0DC' : '#5A5673'
+  const resolvedTheme = options.theme ?? 'editorial-dark'
+  const isEditorial = resolvedTheme === 'editorial-dark' || resolvedTheme === 'editorial-light'
+  const isDarkSurface = resolvedTheme === 'editorial-dark' || resolvedTheme === 'cosmic'
+  const bg =
+    resolvedTheme === 'editorial-dark'
+      ? '#141416'
+      : resolvedTheme === 'editorial-light'
+        ? '#F7F5F0'
+        : isDarkSurface
+          ? '#1E1B38'
+          : '#FAF8F5'
+  const cardSurface =
+    resolvedTheme === 'editorial-dark'
+      ? '#1C1D20'
+      : resolvedTheme === 'editorial-light'
+        ? '#FFFFFF'
+        : isDarkSurface
+          ? '#2A264A'
+          : '#FFFFFF'
+  const ink = isDarkSurface ? '#F7F5F0' : '#202321'
+  const inkMuted = isDarkSurface ? '#A8B0AA' : '#5E645F'
 
   // 1. Canvas Background
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, width, height)
 
-  // Soft nebula radial glows
-  const g1 = ctx.createRadialGradient(920, 140, 20, 920, 140, 480)
-  g1.addColorStop(0, isCosmic ? 'rgba(157, 141, 241, 0.34)' : 'rgba(157, 141, 241, 0.2)')
-  g1.addColorStop(1, 'rgba(157, 141, 241, 0)')
-  ctx.fillStyle = g1
-  ctx.fillRect(0, 0, width, height)
+  if (isEditorial) {
+    // Architectural Editorial warm gold + sage subtle vignette & hairline grid
+    const g1 = ctx.createRadialGradient(920, 120, 20, 920, 120, 520)
+    g1.addColorStop(0, isDarkSurface ? 'rgba(197, 155, 70, 0.18)' : 'rgba(197, 155, 70, 0.14)')
+    g1.addColorStop(1, 'rgba(197, 155, 70, 0)')
+    ctx.fillStyle = g1
+    ctx.fillRect(0, 0, width, height)
 
-  const g2 = ctx.createRadialGradient(140, 1180, 20, 140, 1180, 460)
-  g2.addColorStop(0, isCosmic ? 'rgba(78, 205, 196, 0.24)' : 'rgba(78, 205, 196, 0.16)')
-  g2.addColorStop(1, 'rgba(78, 205, 196, 0)')
-  ctx.fillStyle = g2
-  ctx.fillRect(0, 0, width, height)
+    const g2 = ctx.createRadialGradient(140, 1200, 20, 140, 1200, 480)
+    g2.addColorStop(0, isDarkSurface ? 'rgba(82, 104, 87, 0.22)' : 'rgba(82, 104, 87, 0.14)')
+    g2.addColorStop(1, 'rgba(82, 104, 87, 0)')
+    ctx.fillStyle = g2
+    ctx.fillRect(0, 0, width, height)
 
-  // Decorative cosmic orbit arcs
-  ctx.save()
-  ctx.strokeStyle = isCosmic ? 'rgba(157, 141, 241, 0.18)' : 'rgba(59, 53, 97, 0.1)'
-  ctx.lineWidth = 2
-  ctx.beginPath()
-  ctx.ellipse(910, 170, 260, 110, -0.35, 0, Math.PI * 2)
-  ctx.stroke()
+    // Editorial double gold/stone hairline border
+    drawRoundedRect(ctx, 42, 42, width - 84, height - 84, 38)
+    ctx.lineWidth = 2
+    ctx.strokeStyle = isDarkSurface ? 'rgba(197, 155, 70, 0.35)' : 'rgba(197, 155, 70, 0.45)'
+    ctx.stroke()
 
-  ctx.strokeStyle = isCosmic ? 'rgba(78, 205, 196, 0.16)' : 'rgba(78, 205, 196, 0.2)'
-  ctx.beginPath()
-  ctx.ellipse(150, 1210, 280, 95, 0.32, 0, Math.PI * 2)
-  ctx.stroke()
-
-  // Scattered starlight specks
-  const stars = [
-    [95, 92, 3, '#F9C74F'],
-    [220, 165, 2.2, '#4ECDC4'],
-    [820, 88, 3.5, '#F9C74F'],
-    [980, 250, 2.6, '#FAF8F5'],
-    [105, 760, 2.4, '#9D8DF1'],
-    [975, 860, 3.2, '#F26B5B'],
-    [920, 1240, 2.8, '#F9C74F'],
-    [180, 1280, 2.2, '#4ECDC4']
-  ] as const
-  for (const [sx, sy, sr, sc] of stars) {
-    ctx.beginPath()
-    ctx.arc(sx, sy, sr, 0, Math.PI * 2)
-    ctx.fillStyle = sc
+    drawRoundedRect(ctx, 56, 56, width - 112, height - 112, 32)
+    ctx.fillStyle = isDarkSurface ? 'rgba(25, 26, 29, 0.94)' : 'rgba(255, 255, 255, 0.95)'
     ctx.fill()
-  }
-  ctx.restore()
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = isDarkSurface ? 'rgba(255, 255, 255, 0.08)' : 'rgba(32, 35, 33, 0.1)'
+    ctx.stroke()
+  } else {
+    // Soft nebula radial glows (legacy cosmic/cream)
+    const g1 = ctx.createRadialGradient(920, 140, 20, 920, 140, 480)
+    g1.addColorStop(0, isDarkSurface ? 'rgba(157, 141, 241, 0.34)' : 'rgba(157, 141, 241, 0.2)')
+    g1.addColorStop(1, 'rgba(157, 141, 241, 0)')
+    ctx.fillStyle = g1
+    ctx.fillRect(0, 0, width, height)
 
-  // 2. Main Story Card Frame
-  drawRoundedRect(ctx, 56, 56, width - 112, height - 112, 46)
-  ctx.fillStyle = isCosmic ? 'rgba(42, 38, 74, 0.72)' : 'rgba(255, 255, 255, 0.92)'
-  ctx.fill()
-  ctx.lineWidth = 2.5
-  ctx.strokeStyle = isCosmic ? 'rgba(157, 141, 241, 0.28)' : 'rgba(59, 53, 97, 0.12)'
-  ctx.stroke()
+    const g2 = ctx.createRadialGradient(140, 1180, 20, 140, 1180, 460)
+    g2.addColorStop(0, isDarkSurface ? 'rgba(78, 205, 196, 0.24)' : 'rgba(78, 205, 196, 0.16)')
+    g2.addColorStop(1, 'rgba(78, 205, 196, 0)')
+    ctx.fillStyle = g2
+    ctx.fillRect(0, 0, width, height)
+
+    // Main Story Card Frame
+    drawRoundedRect(ctx, 56, 56, width - 112, height - 112, 46)
+    ctx.fillStyle = isDarkSurface ? 'rgba(42, 38, 74, 0.72)' : 'rgba(255, 255, 255, 0.92)'
+    ctx.fill()
+    ctx.lineWidth = 2.5
+    ctx.strokeStyle = isDarkSurface ? 'rgba(157, 141, 241, 0.28)' : 'rgba(59, 53, 97, 0.12)'
+    ctx.stroke()
+  }
 
   // 3. Brand Masthead
-  drawRoundedRect(ctx, 108, 108, 56, 56, 18)
-  ctx.fillStyle = isCosmic ? '#FAF8F5' : '#1E1B38'
+  drawRoundedRect(ctx, 108, 102, 58, 58, 16)
+  ctx.fillStyle = isEditorial ? '#181A19' : isDarkSurface ? '#FAF8F5' : '#1E1B38'
   ctx.fill()
-  ctx.fillStyle = isCosmic ? '#1E1B38' : '#FAF8F5'
+  if (isEditorial) {
+    ctx.lineWidth = 2
+    ctx.strokeStyle = '#C59B46'
+    ctx.stroke()
+  }
+  ctx.fillStyle = isEditorial ? '#E7C878' : isDarkSurface ? '#1E1B38' : '#FAF8F5'
   ctx.font = '700 32px Georgia, serif'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText('♔', 136, 138)
+  ctx.fillText('♔', 137, 133)
 
   ctx.textAlign = 'left'
   ctx.fillStyle = ink
   ctx.font = '600 30px "Playfair Display", Georgia, serif'
-  ctx.fillText('Grandmaster Atelier', 184, 127)
+  ctx.fillText('Grandmaster Atelier', 184, 123)
   ctx.fillStyle = inkMuted
-  ctx.font = '600 15px "JetBrains Mono", monospace'
-  ctx.fillText('STUDIO REPERTOAR & BABAK AKHIR', 184, 156)
+  ctx.font = '600 14px "JetBrains Mono", monospace'
+  ctx.fillText('POSTER PARTAI EDITORIAL · STUDIO CATUR', 184, 152)
 
   // Right Pill Badge
-  ctx.font = '700 16px "JetBrains Mono", monospace'
+  ctx.font = '700 15px "JetBrains Mono", monospace'
   const badgeText = options.badgeLabel.toUpperCase()
-  const badgeW = Math.min(300, ctx.measureText(badgeText).width + 44)
-  drawRoundedRect(ctx, width - 108 - badgeW, 114, badgeW, 44, 22)
-  ctx.fillStyle = 'rgba(242, 107, 91, 0.18)'
+  const badgeW = Math.min(310, ctx.measureText(badgeText).width + 44)
+  drawRoundedRect(ctx, width - 108 - badgeW, 110, badgeW, 44, 22)
+  ctx.fillStyle = isEditorial ? 'rgba(82, 104, 87, 0.2)' : 'rgba(242, 107, 91, 0.18)'
   ctx.fill()
   ctx.lineWidth = 2
-  ctx.strokeStyle = '#F26B5B'
+  ctx.strokeStyle = isEditorial ? '#718675' : '#F26B5B'
   ctx.stroke()
-  ctx.fillStyle = isCosmic ? '#FFADA3' : '#C94738'
+  ctx.fillStyle = isEditorial
+    ? isDarkSurface
+      ? '#B8D4BE'
+      : '#3B5240'
+    : isDarkSurface
+      ? '#FFADA3'
+      : '#C94738'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(badgeText, width - 108 - badgeW / 2, 136)
+  ctx.fillText(badgeText, width - 108 - badgeW / 2, 132)
 
   // 4. Achievement Title & Subtitle
   ctx.textAlign = 'left'
   ctx.fillStyle = ink
-  ctx.font = '700 48px "Playfair Display", Georgia, serif'
+  ctx.font = '700 46px "Playfair Display", Georgia, serif'
   const titleLines = wrapTextLines(ctx, options.title, width - 216, 2)
   titleLines.forEach((line, idx) => {
-    ctx.fillText(line, 108, 240 + idx * 58)
+    ctx.fillText(line, 108, 228 + idx * 54)
   })
 
   ctx.fillStyle = inkMuted
-  ctx.font = '500 22px "Plus Jakarta Sans", sans-serif'
-  ctx.fillText(options.subtitle.slice(0, 74), 108, 240 + titleLines.length * 58 + 16)
+  ctx.font = '500 21px "Plus Jakarta Sans", sans-serif'
+  ctx.fillText(options.subtitle.slice(0, 74), 108, 228 + titleLines.length * 54 + 10)
+
+  // Optional Highlighted Move Editorial Ribbon (e.g. "Momen Terbaik: 16. Qb8+!!")
+  let boardY = 398
+  if (options.highlightSan) {
+    const ribbonY = 342
+    drawRoundedRect(ctx, 108, ribbonY, width - 216, 46, 14)
+    ctx.fillStyle = isDarkSurface ? 'rgba(197, 155, 70, 0.16)' : 'rgba(197, 155, 70, 0.14)'
+    ctx.fill()
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = 'rgba(197, 155, 70, 0.55)'
+    ctx.stroke()
+
+    ctx.fillStyle = isDarkSurface ? '#F0D285' : '#8C6A1F'
+    ctx.font = '700 18px "JetBrains Mono", monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const labelText = options.highlightLabel
+      ? `${options.highlightLabel.toUpperCase()} · ${options.highlightSan}`
+      : `MOMEN SOROTAN · ${options.highlightSan}`
+    ctx.fillText(labelText, width / 2, ribbonY + 24)
+    boardY = 418
+  }
 
   // 5. Centered Live 8x8 Chessboard
-  const boardSize = 560
+  const boardSize = 548
   const boardX = (width - boardSize) / 2
-  const boardY = 415
   drawChessBoardPreview(
     ctx,
     options.fen,
@@ -361,26 +407,26 @@ export function exportAchievementCardPng(options: AchievementCardOptions): boole
     boardX,
     boardY,
     boardSize,
-    isCosmic
+    isDarkSurface
   )
 
   // 6. Metric Strip (Akurasi, Streak Harian, Extra)
-  const metricY = 1040
+  const metricY = 1028
   const metrics = [
     {
       label: 'AKURASI',
       value: `${Math.max(0, Math.min(100, Math.round(options.accuracyPercent)))}%`,
-      accent: '#4ECDC4'
+      accent: isEditorial ? '#718675' : '#4ECDC4'
     },
     {
       label: 'STREAK HARIAN',
       value: `${options.streakDays} Hari`,
-      accent: '#F9C74F'
+      accent: isEditorial ? '#C59B46' : '#F9C74F'
     },
     {
       label: (options.extraMetricLabel ?? 'GAYA PAPAN').toUpperCase(),
       value: options.extraMetricValue ?? `${options.palette.label}`,
-      accent: '#9D8DF1'
+      accent: isEditorial ? '#B85D43' : '#9D8DF1'
     }
   ]
 
@@ -390,11 +436,11 @@ export function exportAchievementCardPng(options: AchievementCardOptions): boole
 
   metrics.forEach((m, idx) => {
     const bx = 108 + idx * (boxW + gap)
-    drawRoundedRect(ctx, bx, metricY, boxW, boxH, 26)
+    drawRoundedRect(ctx, bx, metricY, boxW, boxH, 24)
     ctx.fillStyle = cardSurface
     ctx.fill()
-    ctx.lineWidth = 2
-    ctx.strokeStyle = isCosmic ? 'rgba(255, 255, 255, 0.1)' : 'rgba(59, 53, 97, 0.1)'
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = isDarkSurface ? 'rgba(255, 255, 255, 0.1)' : 'rgba(32, 35, 33, 0.1)'
     ctx.stroke()
 
     // Accent bar
@@ -415,11 +461,11 @@ export function exportAchievementCardPng(options: AchievementCardOptions): boole
   // 7. Footer Signature
   ctx.textAlign = 'center'
   ctx.fillStyle = inkMuted
-  ctx.font = '500 17px "JetBrains Mono", monospace'
+  ctx.font = '500 16px "JetBrains Mono", monospace'
   ctx.fillText(
-    `Grandmaster Atelier · Set Bidak ${options.pieceSet === 'animal' ? 'Hewan Pastel' : 'Klasik Staunton'}`,
+    `Grandmaster Atelier · ${options.pieceSet === 'animal' ? 'Bidak Hewan Pastel' : 'Bidak Klasik Staunton'}`,
     width / 2,
-    height - 100
+    height - 96
   )
 
   // Trigger PNG download

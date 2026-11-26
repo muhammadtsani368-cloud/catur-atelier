@@ -326,7 +326,7 @@ function scheduleOpponentMoveIfNeeded() {
     } else {
       if (feedbackState.value === 'idle') {
         feedbackTitle.value = `Lawan memainkan ${nextSnap.san}`
-        feedbackMessage.value = `${nextSnap.explanation} Kini giliran Anda — temukan balasan repertoar terbaik.`
+        feedbackMessage.value = `${nextSnap.explanation} Kini giliran Anda: temukan balasan repertoar terbaik.`
       }
     }
   }, 420)
@@ -419,7 +419,7 @@ function handleStudyMove(payload: { from: Square; to: Square; promotion?: PieceS
       correctSquare.value = playedMove.to
       updateStudyEval(nextBookSnap.fen)
       feedbackState.value = 'correct'
-      feedbackTitle.value = `Jalur Buku — Langkah ke-${nextBookSnap.moveNumber}`
+      feedbackTitle.value = `Jalur Buku: Langkah ke-${nextBookSnap.moveNumber}`
       feedbackMoveSan.value = nextBookSnap.san
       feedbackMessage.value = nextBookSnap.explanation
       return
@@ -617,7 +617,7 @@ function handleSelectPly(ply: number) {
       if (bSnap) {
         updateStudyEval(bSnap.fen)
         feedbackState.value = 'idle'
-        feedbackTitle.value = `Cabang Analisis — Langkah ke-${bSnap.moveNumber}`
+        feedbackTitle.value = `Cabang Analisis: Langkah ke-${bSnap.moveNumber}`
         feedbackMoveSan.value = bSnap.san
         feedbackMessage.value = bSnap.explanation
       }
@@ -638,7 +638,7 @@ function handleSelectPly(ply: number) {
       feedbackState.value = trainerMode.value === 'study' ? 'correct' : 'idle'
       feedbackTitle.value =
         trainerMode.value === 'study'
-          ? `Jalur Buku — Langkah ke-${snap.moveNumber}`
+          ? `Jalur Buku: Langkah ke-${snap.moveNumber}`
           : `Meninjau Langkah ke-${snap.moveNumber}`
       feedbackMoveSan.value = snap.san
       feedbackMessage.value = snap.explanation

@@ -5,6 +5,11 @@ import {
   getCatalogBotById,
   type BotCatalogEntry
 } from '~/utils/botCatalog'
+import {
+  getBotPersona,
+  scoreMoveStyleAffinity,
+  type BotPersonaId
+} from '~/utils/botPersonas'
 
 export interface ChessBotProfile {
   id: string
@@ -26,7 +31,14 @@ export interface ChessBotProfile {
 export type BotEngineInput = ChessBotProfile | BotCatalogEntry | { elo: number }
 
 export function catalogEntryToEngineProfile(entry: BotCatalogEntry): ChessBotProfile {
-  const noiseCp = Math.round(entry.randomness * 260)
+  // Wider centipawn noise curve for low-ELO bots so 250-800 truly feels beginner/novice,
+  // while 1900-3200 stays razor-sharp (0-18cp)
+  const noiseCp =
+    entry.elo <= 450
+      ? Math.round(entry.randomness * 460)
+      : entry.elo <= 900
+        ? Math.round(entry.randomness * 340)
+        : Math.round(entry.randomness * 260)
   return {
     id: entry.id,
     name: entry.name,
@@ -210,7 +222,12 @@ function getPstValue(
  * Full-game static evaluation in centipawns from White's perspective.
  * Enhanced for high-ELO play with passed pawns, open-file rooks, king shield, and aggression tuning.
  */
-export function evaluateBoard(game: Chess, aggression = 0.5, enhanced = true): number {
+export function evaluateBoard(
+  game: Chess,
+  aggression = 0.5,
+  enhanced = true,
+  personaId: BotPersonaId = 'default'
+): number {
   if (game.isCheckmate()) {
     return game.turn() === 'w' ? -99999 : 99999
   }
@@ -227,6 +244,8 @@ export function evaluateBoard(game: Chess, aggression = 0.5, enhanced = true): n
   let nonPawnMaterial = 0
   let wBishops = 0
   let bBishops = 0
+  let wActivePieces = 0
+  let bActivePieces = 0
   const wPawnFiles = new Uint8Array(8)
   const bPawnFiles = new Uint8Array(8)
   const wPawnRanks: number[] = []
@@ -244,6 +263,8 @@ export function evaluateBoard(game: Chess, aggression = 0.5, enhanced = true): n
       if (!p) continue
       if (p.type !== 'p' && p.type !== 'k') {
         nonPawnMaterial += PIECE_VALUES[p.type]
+        if (p.color === 'w' && r < 7) wActivePieces += 1
+        if (p.color === 'b' && r > 0) bActivePieces += 1
       }
       if (p.type === 'b') {
         if (p.color === 'w') wBishops += 1
@@ -267,8 +288,11 @@ export function evaluateBoard(game: Chess, aggression = 0.5, enhanced = true): n
   }
 
   const isEndgame = nonPawnMaterial <= 2600
+  const totalPawns = wPawnRanks.length + bPawnRanks.length
   let score = 0
   const aggrScale = 0.75 + aggression * 0.55
+  const personaAttackMult =
+    personaId === 'gambiteer' ? 2.35 : personaId === 'fortress' ? 0.55 : personaId === 'trickster' ? 1.35 : 1.0
 
   for (let r = 0; r < 8; r++) {
     const row = board[r]
@@ -278,12 +302,34 @@ export function evaluateBoard(game: Chess, aggression = 0.5, enhanced = true): n
       if (!p) continue
       let val = PIECE_VALUES[p.type] + getPstValue(p.type, p.color, r, c, isEndgame)
 
-      // Aggression bonus for advancing minor/major pieces toward enemy territory
-      if (enhanced && !isEndgame && (p.type === 'n' || p.type === 'b' || p.type === 'q')) {
+      // Aggression & persona bonus for advancing minor/major pieces toward enemy territory
+      // Active for ALL ELOs when a persona is selected (not gated behind enhanced!)
+      if ((enhanced || personaId !== 'default') && !isEndgame && (p.type === 'n' || p.type === 'b' || p.type === 'q')) {
         const enemyKing = p.color === 'w' ? bKingPos : wKingPos
         if (enemyKing) {
           const dist = Math.abs(r - enemyKing.r) + Math.abs(c - enemyKing.c)
-          val += Math.round(Math.max(0, 8 - dist) * 2.2 * aggrScale)
+          val += Math.round(Math.max(0, 8 - dist) * 2.5 * aggrScale * personaAttackMult)
+          if (personaId === 'gambiteer' && (enemyKing.c === 3 || enemyKing.c === 4) && dist <= 6) {
+            val += 28
+          }
+        }
+      }
+
+      if (personaId === 'positional' && (r === 3 || r === 4) && (c === 3 || c === 4)) {
+        val += 24
+      } else if (personaId === 'trickster') {
+        if (p.type === 'n' && totalPawns >= 10) val += 32
+        if ((p.type === 'n' || p.type === 'b') && ((p.color === 'w' && r <= 4) || (p.color === 'b' && r >= 3))) {
+          val += 22
+        }
+      } else if (personaId === 'fortress' && p.type === 'p') {
+        const supportRow = p.color === 'w' ? board[r + 1] : board[r - 1]
+        if (
+          supportRow &&
+          ((c > 0 && supportRow[c - 1]?.type === 'p' && supportRow[c - 1]?.color === p.color) ||
+            (c < 7 && supportRow[c + 1]?.type === 'p' && supportRow[c + 1]?.color === p.color))
+        ) {
+          val += 14
         }
       }
 
@@ -293,31 +339,36 @@ export function evaluateBoard(game: Chess, aggression = 0.5, enhanced = true): n
   }
 
   // Bishop pair bonus
-  if (wBishops >= 2) score += 34
-  if (bBishops >= 2) score -= 34
+  const bishopPairBonus = personaId === 'positional' ? 54 : 34
+  if (wBishops >= 2) score += bishopPairBonus
+  if (bBishops >= 2) score -= bishopPairBonus
 
   if (enhanced) {
+    const doubledPenalty = personaId === 'positional' ? 24 : 14
+    const openRookFull = personaId === 'positional' ? 34 : 22
+    const openRookSemi = personaId === 'positional' ? 20 : 12
+
     // Doubled pawn penalty & open-file rook bonus
     for (let c = 0; c < 8; c++) {
       const wf = wPawnFiles[c] ?? 0
       const bf = bPawnFiles[c] ?? 0
-      if (wf > 1) score -= (wf - 1) * 14
-      if (bf > 1) score += (bf - 1) * 14
+      if (wf > 1) score -= (wf - 1) * doubledPenalty
+      if (bf > 1) score += (bf - 1) * doubledPenalty
     }
 
     for (const c of wRooks) {
       if ((wPawnFiles[c] ?? 0) === 0) {
-        score += (bPawnFiles[c] ?? 0) === 0 ? 22 : 12
+        score += (bPawnFiles[c] ?? 0) === 0 ? openRookFull : openRookSemi
       }
     }
     for (const c of bRooks) {
       if ((bPawnFiles[c] ?? 0) === 0) {
-        score -= (wPawnFiles[c] ?? 0) === 0 ? 22 : 12
+        score -= (wPawnFiles[c] ?? 0) === 0 ? openRookFull : openRookSemi
       }
     }
 
     // Passed pawn bonus (stronger in endgame)
-    const passScale = isEndgame ? 1.55 : 0.85
+    const passScale = (isEndgame ? 1.55 : 0.85) * (personaId === 'positional' ? 1.25 : 1)
     for (const packed of wPawnRanks) {
       const r = packed >> 3
       const c = packed & 7
@@ -355,13 +406,14 @@ export function evaluateBoard(game: Chess, aggression = 0.5, enhanced = true): n
     }
 
     // Castled king pawn shield in middlegame
+    const shieldUnit = personaId === 'fortress' ? 26 : 11
     if (!isEndgame && wKingPos && wKingPos.r >= 6 && (wKingPos.c <= 2 || wKingPos.c >= 5)) {
       const shieldRow = board[6]
       if (shieldRow) {
         for (let dc = -1; dc <= 1; dc++) {
           const sc = wKingPos.c + dc
           if (sc >= 0 && sc < 8 && shieldRow[sc]?.type === 'p' && shieldRow[sc]?.color === 'w') {
-            score += 11
+            score += shieldUnit
           }
         }
       }
@@ -372,10 +424,15 @@ export function evaluateBoard(game: Chess, aggression = 0.5, enhanced = true): n
         for (let dc = -1; dc <= 1; dc++) {
           const sc = bKingPos.c + dc
           if (sc >= 0 && sc < 8 && shieldRow[sc]?.type === 'p' && shieldRow[sc]?.color === 'b') {
-            score -= 11
+            score -= shieldUnit
           }
         }
       }
+    }
+
+    if (personaId === 'fortress' && !isEndgame) {
+      if (wKingPos && wKingPos.r === 7 && wKingPos.c === 4 && wActivePieces >= 3) score -= 28
+      if (bKingPos && bKingPos.r === 0 && bKingPos.c === 4 && bActivePieces >= 3) score += 28
     }
   }
 
@@ -399,6 +456,12 @@ function orderMoveScore(move: Move, aggression: number): number {
   return s
 }
 
+interface TTEntry {
+  depth: number
+  score: number
+  flag: 0 | 1 | 2 // 0 = exact, 1 = lowerbound, 2 = upperbound
+}
+
 interface BotSearchControl {
   deadline: number
   aborted: boolean
@@ -407,6 +470,13 @@ interface BotSearchControl {
   maxQDepth: number
   aggression: number
   enhancedEval: boolean
+  personaId: BotPersonaId
+  tt: Map<string, TTEntry>
+}
+
+function ttKey(game: Chess): string {
+  const parts = game.fen().split(' ')
+  return `${parts[0]} ${parts[1]} ${parts[2]}`
 }
 
 function quiescence(
@@ -423,7 +493,7 @@ function quiescence(
     return 0
   }
 
-  const standPat = evaluateBoard(game, ctrl.aggression, ctrl.enhancedEval)
+  const standPat = evaluateBoard(game, ctrl.aggression, ctrl.enhancedEval, ctrl.personaId)
   if (qDepth <= 0) return standPat
 
   if (maximizingWhite) {
@@ -492,12 +562,25 @@ function alphaBeta(
     if (ctrl.useQuiescence && lastMoveTactical) {
       return quiescence(game, alpha, beta, maximizingWhite, ctrl.maxQDepth, ctrl)
     }
-    return evaluateBoard(game, ctrl.aggression, ctrl.enhancedEval)
+    return evaluateBoard(game, ctrl.aggression, ctrl.enhancedEval, ctrl.personaId)
+  }
+
+  const origAlpha = alpha
+  const origBeta = beta
+  const key = ctrl.tt.size < 25000 ? ttKey(game) : ''
+  if (key) {
+    const cached = ctrl.tt.get(key)
+    if (cached && cached.depth >= depth) {
+      if (cached.flag === 0) return cached.score
+      if (cached.flag === 1 && cached.score >= beta) return cached.score
+      if (cached.flag === 2 && cached.score <= alpha) return cached.score
+    }
   }
 
   const moves = game.moves({ verbose: true })
   moves.sort((a, b) => orderMoveScore(b, ctrl.aggression) - orderMoveScore(a, ctrl.aggression))
 
+  let bestScore: number
   if (maximizingWhite) {
     let best = -Infinity
     for (const move of moves) {
@@ -510,7 +593,7 @@ function alphaBeta(
       if (best > alpha) alpha = best
       if (beta <= alpha) break
     }
-    return best
+    bestScore = best
   } else {
     let best = Infinity
     for (const move of moves) {
@@ -523,8 +606,17 @@ function alphaBeta(
       if (best < beta) beta = val
       if (beta <= alpha) break
     }
-    return best
+    bestScore = best
   }
+
+  if (key && !ctrl.aborted) {
+    let flag: 0 | 1 | 2 = 0
+    if (bestScore <= origAlpha) flag = 2
+    else if (bestScore >= origBeta) flag = 1
+    ctrl.tt.set(key, { depth, score: bestScore, flag })
+  }
+
+  return bestScore
 }
 
 export interface BotMoveResponse {
@@ -544,33 +636,42 @@ export function getBotProfileById(id: string): ChessBotProfile {
 export function computeBotMove(
   fen: string,
   botInput: BotEngineInput,
-  moveHistorySan: string[] = []
+  moveHistorySan: string[] = [],
+  personaId: BotPersonaId = 'default'
 ): BotMoveResponse {
   const profile = normalizeBotProfile(botInput)
+  const persona = getBotPersona(personaId)
+  const effectiveAggression = persona.aggressionOverride ?? profile.aggression
   const game = new Chess(fen)
   const moves = game.moves({ verbose: true })
   if (moves.length === 0) {
     return {
       move: null,
-      evaluation: Math.round((evaluateBoard(game, profile.aggression) / 100) * 10) / 10,
+      evaluation: Math.round((evaluateBoard(game, effectiveAggression, true, personaId) / 100) * 10) / 10,
       depth: 0,
       fromBook: false
     }
   }
 
-  // 1. Opening book lookup for intermediate+ bots
-  if (profile.useBook && moveHistorySan.length <= 8) {
+  // 1. Opening book lookup:
+  // If a custom persona is selected (and ELO >= 600), consult its dedicated repertoire book FIRST so
+  // the player immediately feels the personality from move 1!
+  if ((profile.useBook || (personaId !== 'default' && profile.elo >= 600)) && moveHistorySan.length <= 8) {
     const key = moveHistorySan.join(' ')
-    const candidates = MINI_OPENING_BOOK[key]
+    const personaBookMoves = persona.openingBook[key]
+    const candidates =
+      personaBookMoves && personaBookMoves.length > 0 ? personaBookMoves : MINI_OPENING_BOOK[key]
     if (candidates && candidates.length > 0) {
       const legalBook = candidates
         .map((san) => moves.find((m) => m.san === san))
         .filter((m): m is Move => Boolean(m))
       if (legalBook.length > 0) {
-        const picked = legalBook[Math.floor(Math.random() * legalBook.length)]!
+        const personaPreferred = legalBook.filter((m) => persona.preferredBookMoves.includes(m.san))
+        const pool = personaPreferred.length > 0 ? personaPreferred : legalBook
+        const picked = pool[Math.floor(Math.random() * pool.length)]!
         return {
           move: picked,
-          evaluation: Math.round((evaluateBoard(game, profile.aggression) / 100) * 10) / 10,
+          evaluation: Math.round((evaluateBoard(game, effectiveAggression, true, personaId) / 100) * 10) / 10,
           depth: 0,
           fromBook: true
         }
@@ -578,39 +679,55 @@ export function computeBotMove(
     }
   }
 
-  // 2. Calibrated beginner/intermediate blunder rate (ELO 250 - 1350)
-  if (profile.blunderChance > 0 && Math.random() < profile.blunderChance) {
-    // At very low ELO (250-500), completely random legal move; at 600-1300, avoid giving away instant mate-in-1 when possible
-    const shuffled = [...moves].sort(() => Math.random() - 0.5)
-    const picked = shuffled[0]!
+  // 2. Authentic beginner oversight (250-650 ELO): truly plays like a beginner who occasionally
+  // overlooks undefended pieces or plays spontaneous non-optimal legal moves.
+  const triggerTunnelVision = profile.blunderChance > 0 && Math.random() < profile.blunderChance
+  if (triggerTunnelVision && profile.elo <= 650) {
+    // Prefer non-mate spontaneous moves (with slight persona bias if active)
+    const scoredBeginner = moves.map((m) => ({
+      move: m,
+      w: Math.random() * 140 + scoreMoveStyleAffinity(m, personaId) * 0.6
+    }))
+    scoredBeginner.sort((a, b) => b.w - a.w)
+    const picked = scoredBeginner[0]!.move
     return {
       move: picked,
-      evaluation: Math.round((evaluateBoard(game, profile.aggression, false) / 100) * 10) / 10,
+      evaluation: Math.round((evaluateBoard(game, effectiveAggression, false, personaId) / 100) * 10) / 10,
       depth: 1,
       fromBook: false
     }
   }
 
   const isWhiteTurn = game.turn() === 'w'
-  moves.sort((a, b) => orderMoveScore(b, profile.aggression) - orderMoveScore(a, profile.aggression))
+  moves.sort(
+    (a, b) =>
+      orderMoveScore(b, effectiveAggression) +
+      scoreMoveStyleAffinity(b, personaId) -
+      (orderMoveScore(a, effectiveAggression) + scoreMoveStyleAffinity(a, personaId))
+  )
 
   // Strict hard time ceiling so 2800-3200 ELO never blocks main thread
   const safeBudgetMs = Math.min(540, Math.max(40, profile.timeBudgetMs))
   const deadline = Date.now() + safeBudgetMs
   let scoredMoves: Array<{ move: Move; score: number }> = moves.map((m) => ({ move: m, score: 0 }))
   let completedDepth = 0
-  const enhancedEval = profile.elo >= 1400
-  const maxQDepth = profile.elo >= 2700 ? 3 : 2
+  const enhancedEval = profile.elo >= 1400 || personaId !== 'default'
+  const maxQDepth = profile.elo >= 2600 ? 4 : profile.elo >= 1800 ? 3 : 2
+  const effectiveMaxDepth =
+    profile.elo <= 850 && triggerTunnelVision ? 1 : profile.maxDepth
+  const tt = new Map<string, TTEntry>()
 
-  for (let depth = 1; depth <= profile.maxDepth; depth++) {
+  for (let depth = 1; depth <= effectiveMaxDepth; depth++) {
     const ctrl: BotSearchControl = {
-      deadline: depth <= 1 ? Number.MAX_SAFE_INTEGER : deadline,
+      deadline: depth <= Math.min(2, effectiveMaxDepth) ? Number.MAX_SAFE_INTEGER : deadline,
       aborted: false,
       nodes: 0,
       useQuiescence: profile.useQuiescence && depth >= 2,
       maxQDepth,
-      aggression: profile.aggression,
-      enhancedEval
+      aggression: effectiveAggression,
+      enhancedEval,
+      personaId,
+      tt
     }
 
     const iterScored: Array<{ move: Move; score: number }> = []
@@ -644,22 +761,45 @@ export function computeBotMove(
     }
   }
 
-  // Apply ELO-calibrated evaluation noise to select among top moves
+  // Apply humanized style affinity & ELO-calibrated selection
   let chosen = scoredMoves[0]!
-  if (profile.noiseCp > 0 && scoredMoves.length > 1) {
-    const topCount = profile.elo <= 600 ? 7 : profile.elo <= 1300 ? 5 : 3
-    const topSlice = scoredMoves.slice(0, Math.min(topCount, scoredMoves.length))
-    const hasForcedMate = Math.abs(chosen.score) >= 85000
-    if (!hasForcedMate) {
-      const noisy = topSlice.map((item) => {
+  const bestScore = chosen.score
+  const hasForcedMate = Math.abs(bestScore) >= 85000
+
+  if (!hasForcedMate && scoredMoves.length > 1) {
+    const personaActive = personaId !== 'default'
+    // Never allow persona style to blunder major material (> 260cp unless beginner tunnel-vision)
+    const maxDropCp = triggerTunnelVision
+      ? Math.min(360, 220 + profile.noiseCp * 0.5 + persona.sacrificeToleranceCp)
+      : Math.max(
+          profile.noiseCp,
+          personaActive ? Math.min(170, persona.styleToleranceCp + persona.sacrificeToleranceCp * 0.5) : 35
+        )
+
+    const reasonablePool = scoredMoves.filter((item) => {
+      const drop = isWhiteTurn ? bestScore - item.score : item.score - bestScore
+      return drop <= maxDropCp
+    })
+
+    if (reasonablePool.length > 1) {
+      const baseTop = triggerTunnelVision ? 7 : profile.elo <= 600 ? 7 : profile.elo <= 1300 ? 5 : 4
+      const topLimit = personaActive ? Math.min(7, baseTop + 2) : baseTop
+      const slice = reasonablePool.slice(0, Math.min(topLimit, reasonablePool.length))
+      const sign = isWhiteTurn ? 1 : -1
+
+      const weighted = slice.map((item) => {
+        // Strong style weight so each persona genuinely chooses distinct plans within sound candidates
+        const styleWeight = personaActive ? 2.4 : 0.6
+        const styleBonus = scoreMoveStyleAffinity(item.move, personaId) * styleWeight
         const jitter = (Math.random() * 2 - 1) * profile.noiseCp
         return {
           ...item,
-          noisyScore: item.score + jitter
+          humanScore: item.score + sign * styleBonus + jitter
         }
       })
-      noisy.sort((a, b) => (isWhiteTurn ? b.noisyScore - a.noisyScore : a.noisyScore - b.noisyScore))
-      chosen = noisy[0]!
+
+      weighted.sort((a, b) => (isWhiteTurn ? b.humanScore - a.humanScore : a.humanScore - b.humanScore))
+      chosen = weighted[0]!
     }
   }
 

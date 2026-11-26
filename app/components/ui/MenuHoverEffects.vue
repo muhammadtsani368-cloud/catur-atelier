@@ -39,15 +39,15 @@ function isActive(to: string): boolean {
         <NuxtLink
           :to="item.to"
           :aria-current="isActive(item.to) ? 'page' : undefined"
-          class="relative inline-flex items-center justify-center group active:scale-[0.98] transition-transform duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F7F5F0] dark:focus-visible:ring-offset-[#121214]"
+          class="min-h-[44px] relative inline-flex items-center justify-center group active:scale-[0.98] transition-transform duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F7F5F0] dark:focus-visible:ring-offset-[#121214]"
         >
           <!-- Link text & icon -->
           <span
-            class="relative z-10 inline-flex items-center gap-1.5 uppercase font-sans font-semibold tracking-[0.05em] whitespace-nowrap transition-colors duration-300 motion-reduce:transition-none"
+            class="relative z-10 inline-flex items-center gap-1.5 font-sans font-semibold whitespace-nowrap transition-colors duration-300 motion-reduce:transition-none"
             :class="[
-              compact ? 'text-[11px] py-1.5 px-2.5' : 'text-[11px] xl:text-xs py-2 px-2 xl:px-3',
+              compact ? 'text-xs py-2 px-2.5' : 'text-xs py-2 px-2.5 xl:px-3',
               isActive(item.to)
-                ? 'text-[#F7F5F0] dark:text-[#202321]'
+                ? 'bg-[#202321] text-[#F7F5F0] dark:bg-[#EDEAE0] dark:text-[#202321]'
                 : 'text-[#202321]/80 dark:text-zinc-300 group-hover:text-[#F7F5F0] group-focus-visible:text-[#F7F5F0] dark:group-hover:text-[#202321] dark:group-focus-visible:text-[#202321]'
             ]"
           >

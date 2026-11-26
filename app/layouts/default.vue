@@ -58,7 +58,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleGlobalShortcut
         <NuxtLink
           to="/"
           class="shrink-0 group rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F7F5F0] dark:focus-visible:ring-offset-[#121214] active:scale-[0.98] transition-transform"
-          aria-label="Grandmaster Atelier — Beranda"
+          aria-label="Grandmaster Atelier: Beranda"
         >
           <AtelierBrandLogo />
         </NuxtLink>
@@ -81,7 +81,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleGlobalShortcut
           >
             <button
               type="button"
-              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675]"
+              class="min-h-[44px] inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675]"
               :aria-pressed="pieceSet === 'classic'"
               :class="
                 pieceSet === 'classic'
@@ -91,29 +91,29 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleGlobalShortcut
               title="Bidak Klasik Staunton"
               @click="setPieceSet('classic')"
             >
-              <Crown class="w-3 h-3" />
+              <Crown class="w-3.5 h-3.5" aria-hidden="true" />
               <span>Klasik</span>
             </button>
             <button
               type="button"
-              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675]"
+              class="min-h-[44px] inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675]"
               :aria-pressed="pieceSet === 'animal'"
               :class="
                 pieceSet === 'animal'
-                  ? 'bg-[#526857] text-white shadow-xs'
+                  ? 'bg-[#3F5344] text-white shadow-xs'
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-[#202321] dark:hover:text-zinc-100'
               "
               title="Bidak Karakter Hewan Pastel"
               @click="setPieceSet('animal')"
             >
-              <PawPrint class="w-3 h-3" />
+              <PawPrint class="w-3.5 h-3.5" aria-hidden="true" />
               <span>Hewan</span>
             </button>
           </div>
 
           <!-- Subtle Board Theme Switcher -->
           <div
-            class="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#E4DFD5] dark:border-zinc-800 bg-white/90 dark:bg-zinc-900/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-none"
+            class="hidden sm:flex items-center gap-0.5 px-1.5 rounded-lg border border-[#E4DFD5] dark:border-zinc-800 bg-white/90 dark:bg-zinc-900/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-none"
             role="group"
             aria-label="Pilih tema warna papan"
             title="Pilih Tema Warna Papan"
@@ -122,44 +122,48 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleGlobalShortcut
               v-for="opt in boardThemeOptions"
               :key="opt.key"
               type="button"
-              class="w-4 h-4 rounded-full transition-transform active:scale-90 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675] focus-visible:ring-offset-2"
+              class="min-h-[44px] min-w-[36px] inline-flex items-center justify-center transition-transform active:scale-90 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675] focus-visible:ring-offset-2 rounded-md"
               :aria-pressed="boardTheme === opt.key"
-              :class="
-                boardTheme === opt.key
-                  ? 'ring-2 ring-offset-2 ring-[#202321] dark:ring-zinc-100 dark:ring-offset-zinc-900 scale-105'
-                  : 'opacity-75 hover:opacity-100 hover:scale-105'
-              "
-              :style="{ backgroundColor: opt.swatch }"
               :title="opt.label"
               :aria-label="opt.label"
               @click="setBoardTheme(opt.key)"
-            />
+            >
+              <span
+                class="w-4 h-4 rounded-full transition-transform"
+                :class="
+                  boardTheme === opt.key
+                    ? 'ring-2 ring-offset-2 ring-[#202321] dark:ring-zinc-100 dark:ring-offset-zinc-900 scale-105'
+                    : 'opacity-75 hover:opacity-100 hover:scale-105'
+                "
+                :style="{ backgroundColor: opt.swatch }"
+              />
+            </button>
           </div>
 
           <!-- Mute Toggle -->
           <button
             type="button"
-            class="p-2 rounded-lg border border-[#E4DFD5] dark:border-zinc-800 bg-white/90 dark:bg-zinc-900/90 text-zinc-600 dark:text-zinc-300 hover:text-[#202321] hover:border-[#718675]/60 dark:hover:text-white active:scale-[0.96] transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675]"
+            class="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg border border-[#E4DFD5] dark:border-zinc-800 bg-white/90 dark:bg-zinc-900/90 text-zinc-700 dark:text-zinc-300 hover:text-[#202321] hover:border-[#718675]/60 dark:hover:text-white active:scale-[0.96] transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675]"
             :aria-pressed="isMuted"
             :title="isMuted ? 'Aktifkan Suara Bidak' : 'Bisukan Suara Bidak'"
             :aria-label="isMuted ? 'Aktifkan Suara Bidak' : 'Bisukan Suara Bidak'"
             @click="toggleMute"
           >
-            <VolumeX v-if="isMuted" class="w-4 h-4" />
-            <Volume2 v-else class="w-4 h-4" />
+            <VolumeX v-if="isMuted" class="w-4 h-4" aria-hidden="true" />
+            <Volume2 v-else class="w-4 h-4" aria-hidden="true" />
           </button>
 
           <!-- Dark Mode Toggle -->
           <button
             type="button"
-            class="p-2 rounded-lg border border-[#E4DFD5] dark:border-zinc-800 bg-white/90 dark:bg-zinc-900/90 text-zinc-600 dark:text-zinc-300 hover:text-[#202321] hover:border-[#718675]/60 dark:hover:text-white active:scale-[0.96] transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675]"
+            class="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg border border-[#E4DFD5] dark:border-zinc-800 bg-white/90 dark:bg-zinc-900/90 text-zinc-700 dark:text-zinc-300 hover:text-[#202321] hover:border-[#718675]/60 dark:hover:text-white active:scale-[0.96] transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675]"
             :aria-pressed="isDark"
             :title="isDark ? 'Beralih ke Mode Terang' : 'Beralih ke Mode Gelap'"
             :aria-label="isDark ? 'Beralih ke Mode Terang' : 'Beralih ke Mode Gelap'"
             @click="toggleDark"
           >
-            <Sun v-if="isDark" class="w-4 h-4" />
-            <Moon v-else class="w-4 h-4" />
+            <Sun v-if="isDark" class="w-4 h-4" aria-hidden="true" />
+            <Moon v-else class="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -173,31 +177,35 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleGlobalShortcut
           aria-label="Navigasi seluler"
         />
 
-        <div class="flex items-center gap-2 shrink-0">
+        <div class="flex items-center gap-1.5 shrink-0">
           <button
             type="button"
-            class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold border border-[#E4DFD5] dark:border-zinc-700 bg-white/90 dark:bg-zinc-900 text-[#202321] dark:text-zinc-200 active:scale-[0.97] cursor-pointer"
+            class="min-h-[44px] inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold border border-[#E4DFD5] dark:border-zinc-700 bg-white/90 dark:bg-zinc-900 text-[#202321] dark:text-zinc-200 active:scale-[0.97] cursor-pointer"
             :aria-pressed="pieceSet === 'animal'"
             :title="pieceSet === 'animal' ? 'Ganti ke Bidak Klasik' : 'Ganti ke Bidak Hewan'"
             @click="setPieceSet(pieceSet === 'classic' ? 'animal' : 'classic')"
           >
-            <PawPrint v-if="pieceSet === 'animal'" class="w-3 h-3 text-[#526857] dark:text-[#9DB5A1]" />
-            <Crown v-else class="w-3 h-3" />
+            <PawPrint v-if="pieceSet === 'animal'" class="w-3.5 h-3.5 text-[#526857] dark:text-[#9DB5A1]" aria-hidden="true" />
+            <Crown v-else class="w-3.5 h-3.5" aria-hidden="true" />
             <span>{{ pieceSet === 'animal' ? 'Hewan' : 'Klasik' }}</span>
           </button>
 
-          <div class="flex items-center gap-1.5">
+          <div class="flex items-center gap-0.5">
             <button
               v-for="opt in boardThemeOptions"
               :key="opt.key"
               type="button"
-              class="w-4 h-4 rounded-full cursor-pointer active:scale-90 transition-transform"
+              class="min-h-[44px] min-w-[44px] inline-flex items-center justify-center cursor-pointer active:scale-90 transition-transform"
               :aria-pressed="boardTheme === opt.key"
-              :class="boardTheme === opt.key ? 'ring-2 ring-[#202321] dark:ring-white ring-offset-1' : 'opacity-70'"
-              :style="{ backgroundColor: opt.swatch }"
               :aria-label="opt.label"
               @click="setBoardTheme(opt.key)"
-            />
+            >
+              <span
+                class="w-4 h-4 rounded-full"
+                :class="boardTheme === opt.key ? 'ring-2 ring-[#202321] dark:ring-white ring-offset-1' : 'opacity-75'"
+                :style="{ backgroundColor: opt.swatch }"
+              />
+            </button>
           </div>
         </div>
       </div>

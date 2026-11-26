@@ -59,10 +59,10 @@ const maxPly = computed(() => props.moves.length)
     <div
       class="px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between"
     >
-      <span class="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-        Notasi & Riwayat Langkah
+      <span class="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+        Notasi &amp; Riwayat Langkah
       </span>
-      <span class="font-mono text-[11px] text-zinc-400 dark:text-zinc-500">
+      <span class="font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
         {{ activePly }} / {{ maxPly }} ply
       </span>
     </div>
@@ -70,7 +70,7 @@ const maxPly = computed(() => props.moves.length)
     <div class="p-3 overflow-y-auto max-h-[260px] min-h-[140px]">
       <div
         v-if="rows.length === 0"
-        class="h-full min-h-[110px] flex items-center justify-center text-xs text-zinc-400 dark:text-zinc-500 italic text-center px-4"
+        class="h-full min-h-[110px] flex items-center justify-center text-xs text-zinc-600 dark:text-zinc-400 italic text-center px-4"
       >
         {{ emptyMessage }}
       </div>
@@ -81,19 +81,19 @@ const maxPly = computed(() => props.moves.length)
           :key="row.moveNumber"
           class="grid grid-cols-[2.25rem_1fr_1fr] items-center gap-1"
         >
-          <span class="text-zinc-400 dark:text-zinc-500 text-right pr-2 select-none">
+          <span class="text-zinc-600 dark:text-zinc-400 text-right pr-2 select-none">
             {{ row.moveNumber }}.
           </span>
 
           <button
             v-if="row.white"
             type="button"
-            class="text-left px-2 py-1 rounded-md transition cursor-pointer"
+            class="min-h-[36px] text-left px-2.5 py-1.5 rounded-md transition cursor-pointer"
             :class="
               activePly === row.white.ply
                 ? row.white.isBook === false
-                  ? 'bg-[#B85D43] text-white font-semibold shadow-xs'
-                  : 'bg-[#5D7463] text-white font-semibold shadow-xs'
+                  ? 'bg-[#9B452C] text-white font-semibold shadow-xs'
+                  : 'bg-[#3F5344] text-white font-semibold shadow-xs'
                 : row.white.isBook === false
                   ? 'text-[#9A4831] dark:text-[#E59880] italic hover:bg-[#B85D43]/10'
                   : 'text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -102,17 +102,17 @@ const maxPly = computed(() => props.moves.length)
           >
             {{ row.white.san }}
           </button>
-          <span v-else class="px-2 py-1 text-zinc-300 dark:text-zinc-700">…</span>
+          <span v-else class="px-2 py-1 text-zinc-500 dark:text-zinc-500">...</span>
 
           <button
             v-if="row.black"
             type="button"
-            class="text-left px-2 py-1 rounded-md transition cursor-pointer"
+            class="min-h-[36px] text-left px-2.5 py-1.5 rounded-md transition cursor-pointer"
             :class="
               activePly === row.black.ply
                 ? row.black.isBook === false
-                  ? 'bg-[#B85D43] text-white font-semibold shadow-xs'
-                  : 'bg-[#5D7463] text-white font-semibold shadow-xs'
+                  ? 'bg-[#9B452C] text-white font-semibold shadow-xs'
+                  : 'bg-[#3F5344] text-white font-semibold shadow-xs'
                 : row.black.isBook === false
                   ? 'text-[#9A4831] dark:text-[#E59880] italic hover:bg-[#B85D43]/10'
                   : 'text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800'
@@ -132,39 +132,43 @@ const maxPly = computed(() => props.moves.length)
     >
       <button
         type="button"
-        class="flex-1 flex items-center justify-center py-1.5 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 disabled:opacity-35 transition cursor-pointer"
+        class="min-h-[44px] flex-1 flex items-center justify-center py-2 rounded-lg text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 disabled:opacity-35 disabled:cursor-not-allowed transition"
         :disabled="activePly <= 0"
         title="Posisi Awal"
+        aria-label="Ke posisi awal riwayat"
         @click="emit('selectPly', 0)"
       >
-        <ChevronFirst class="w-4 h-4" />
+        <ChevronFirst class="w-4 h-4" aria-hidden="true" />
       </button>
       <button
         type="button"
-        class="flex-1 flex items-center justify-center py-1.5 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 disabled:opacity-35 transition cursor-pointer"
+        class="min-h-[44px] flex-1 flex items-center justify-center py-2 rounded-lg text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 disabled:opacity-35 disabled:cursor-not-allowed transition"
         :disabled="activePly <= 0"
         title="Langkah Sebelumnya"
+        aria-label="Langkah sebelumnya di riwayat"
         @click="emit('selectPly', Math.max(0, activePly - 1))"
       >
-        <ChevronLeft class="w-4 h-4" />
+        <ChevronLeft class="w-4 h-4" aria-hidden="true" />
       </button>
       <button
         type="button"
-        class="flex-1 flex items-center justify-center py-1.5 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 disabled:opacity-35 transition cursor-pointer"
+        class="min-h-[44px] flex-1 flex items-center justify-center py-2 rounded-lg text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 disabled:opacity-35 disabled:cursor-not-allowed transition"
         :disabled="activePly >= maxPly"
         title="Langkah Berikutnya"
+        aria-label="Langkah berikutnya di riwayat"
         @click="emit('selectPly', Math.min(maxPly, activePly + 1))"
       >
-        <ChevronRight class="w-4 h-4" />
+        <ChevronRight class="w-4 h-4" aria-hidden="true" />
       </button>
       <button
         type="button"
-        class="flex-1 flex items-center justify-center py-1.5 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 disabled:opacity-35 transition cursor-pointer"
+        class="min-h-[44px] flex-1 flex items-center justify-center py-2 rounded-lg text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 disabled:opacity-35 disabled:cursor-not-allowed transition"
         :disabled="activePly >= maxPly"
         title="Langkah Terakhir"
+        aria-label="Ke langkah terakhir riwayat"
         @click="emit('selectPly', maxPly)"
       >
-        <ChevronLast class="w-4 h-4" />
+        <ChevronLast class="w-4 h-4" aria-hidden="true" />
       </button>
     </div>
   </div>

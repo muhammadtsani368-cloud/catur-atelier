@@ -21,11 +21,16 @@ const props = withDefaults(
     errorSquare?: string | null
     hintFrom?: string | null
     hintTo?: string | null
+    hangingSquares?: string[]
+    tensionSquares?: string[]
     arrows?: TacticalArrow[]
     moveBadge?: { square: string; classification: MoveClassification } | null
     showCenterControlToggle?: boolean
     shake?: boolean
     surfaceTone?: 'light' | 'dark'
+    hideCoordinates?: boolean
+    pieceVisibilityMode?: 'normal' | 'fog' | 'blind'
+    squarePickMode?: boolean
   }>(),
   {
     orientation: 'w',
@@ -36,16 +41,25 @@ const props = withDefaults(
     errorSquare: null,
     hintFrom: null,
     hintTo: null,
+    hangingSquares: () => [],
+    tensionSquares: () => [],
     arrows: () => [],
     moveBadge: null,
     showCenterControlToggle: true,
     shake: false,
-    surfaceTone: 'light'
+    surfaceTone: 'light',
+    hideCoordinates: false,
+    pieceVisibilityMode: 'normal',
+    squarePickMode: false
   }
 )
 
+const hangingSquareSet = computed(() => new Set(props.hangingSquares))
+const tensionSquareSet = computed(() => new Set(props.tensionSquares))
+
 const emit = defineEmits<{
   move: [payload: { from: Square; to: Square; promotion?: PieceSymbol }]
+  squareClick: [square: Square]
 }>()
 
 const { currentBoardPalette, cinematicEffects } = useTheme()
@@ -424,7 +438,7 @@ onBeforeUnmount(() => {
 })
 
 function canControlPiece(pieceColor: Color): boolean {
-  if (!props.interactive) return false
+  if (!props.interactive || props.squarePickMode) return false
   if (chessInstance.value.turn() !== pieceColor) return false
   if (props.allowedColor !== 'both' && props.allowedColor !== pieceColor) return false
   return true
@@ -466,6 +480,12 @@ function cancelPromotion() {
 
 function onSquareClick(item: SquareRenderItem) {
   if (!props.interactive || pendingPromotion.value) return
+
+  if (props.squarePickMode) {
+    selectedSquare.value = null
+    emit('squareClick', item.square)
+    return
+  }
 
   if (selectedSquare.value) {
     if (selectedSquare.value === item.square) {
@@ -561,19 +581,21 @@ function getPieceStyle(sq: string) {
         class="relative aspect-square w-full rounded-xl overflow-hidden ring-1 ring-[#202321]/18 dark:ring-black/55"
       >
         <div class="grid grid-cols-8 grid-rows-8 w-full h-full">
-          <button
+          <component
+            :is="interactive ? 'button' : 'div'"
             v-for="item in squares"
             :key="item.square"
-            type="button"
+            :type="interactive ? 'button' : undefined"
+            :data-square="item.square"
             class="relative w-full h-full flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#718675] focus-visible:z-30 transition-colors duration-150"
             :class="interactive ? 'cursor-pointer' : 'cursor-default'"
             :style="{
               backgroundColor: item.isLight ? currentBoardPalette.light : currentBoardPalette.dark
             }"
-            :aria-label="`Petak ${item.square}`"
-            @click="onSquareClick(item)"
-            @dragover="onDragOver($event, item)"
-            @drop="onDrop($event, item)"
+            :aria-label="interactive ? `Petak ${item.square}` : undefined"
+            @click="interactive ? onSquareClick(item) : undefined"
+            @dragover="interactive ? onDragOver($event, item) : undefined"
+            @drop="interactive ? onDrop($event, item) : undefined"
           >
             <!-- Center Control Map overlay (d4, e4, d5, e5) -->
             <span
@@ -630,6 +652,24 @@ function getPieceStyle(sq: string) {
               class="absolute inset-0 bg-[#B85D43]/40 ring-inset ring-2 ring-[#B85D43] pointer-events-none"
             />
 
+            <!-- Adaptive Lens: Hanging / under-defended piece alert frame (Apprentice) -->
+            <span
+              v-if="hangingSquareSet.has(item.square)"
+              class="absolute inset-0 bg-[#B85D43]/22 ring-inset ring-2 ring-[#B85D43]/90 pointer-events-none"
+              aria-hidden="true"
+            >
+              <span
+                class="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-[#B85D43] ring-1 ring-white/85"
+              />
+            </span>
+
+            <!-- Adaptive Lens: Structural / capture tension corner brackets (Apprentice & Club) -->
+            <span
+              v-else-if="tensionSquareSet.has(item.square)"
+              class="absolute inset-1 border border-dashed border-[#8C6D23]/75 dark:border-[#E6C25A]/75 rounded-[3px] pointer-events-none"
+              aria-hidden="true"
+            />
+
             <!-- Hint origin ring -->
             <span
               v-if="hintFrom === item.square"
@@ -657,22 +697,24 @@ function getPieceStyle(sq: string) {
 
             <!-- Rank coordinate (left edge) -->
             <span
-              v-if="item.showRankLabel"
-              class="absolute top-0.5 left-1 text-[10px] sm:text-[11px] font-mono font-semibold leading-none pointer-events-none opacity-85"
+              v-if="item.showRankLabel && !hideCoordinates"
+              class="absolute top-0.5 left-1 text-[10px] sm:text-[11px] font-mono font-semibold leading-none pointer-events-none"
               :style="{
                 color: item.isLight ? currentBoardPalette.coordOnLight : currentBoardPalette.coordOnDark
               }"
+              aria-hidden="true"
             >
               {{ item.rank }}
             </span>
 
             <!-- File coordinate (bottom edge) -->
             <span
-              v-if="item.showFileLabel"
-              class="absolute bottom-0.5 right-1 text-[10px] sm:text-[11px] font-mono font-semibold leading-none pointer-events-none opacity-85"
+              v-if="item.showFileLabel && !hideCoordinates"
+              class="absolute bottom-0.5 right-1 text-[10px] sm:text-[11px] font-mono font-semibold leading-none pointer-events-none"
               :style="{
                 color: item.isLight ? currentBoardPalette.coordOnLight : currentBoardPalette.coordOnDark
               }"
+              aria-hidden="true"
             >
               {{ item.file }}
             </span>
@@ -719,7 +761,7 @@ function getPieceStyle(sq: string) {
             >
               <ChessPiece :type="item.piece.type" :color="item.piece.color" />
             </div>
-          </button>
+          </component>
         </div>
 
         <!-- Tactical SVG Arrow Overlay -->
@@ -776,7 +818,7 @@ function getPieceStyle(sq: string) {
     >
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675]"
+        class="min-h-[44px] inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#718675]"
         :aria-pressed="showCenterControl"
         :class="
           surfaceTone === 'dark'
@@ -785,11 +827,11 @@ function getPieceStyle(sq: string) {
               : 'bg-white/[0.06] text-zinc-200 border-white/12 hover:border-[#8FA894]/60 hover:bg-white/[0.11]'
             : showCenterControl
               ? 'bg-[#718675]/15 text-[#3B4E3F] dark:text-[#B8CEBC] border-[#718675]/55'
-              : 'bg-white/85 dark:bg-zinc-900/75 text-zinc-600 dark:text-zinc-400 border-[#E4DFD5] dark:border-zinc-800 hover:border-[#718675]'
+              : 'bg-white/85 dark:bg-zinc-900/75 text-zinc-700 dark:text-zinc-300 border-[#E4DFD5] dark:border-zinc-800 hover:border-[#718675]'
         "
         @click="showCenterControl = !showCenterControl"
       >
-        <Crosshair class="w-3.5 h-3.5" />
+        <Crosshair class="w-3.5 h-3.5" aria-hidden="true" />
         <span>Peta Kontrol Pusat</span>
       </button>
 

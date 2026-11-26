@@ -36,6 +36,7 @@ import {
   normalizeFenKey,
   saveSeenPuzzleKeys
 } from '~/utils/puzzleGenerator'
+import { markDailyRoutineTaskComplete } from '~/utils/dailyRoutine'
 import {
   playCheckSound,
   playErrorSound,
@@ -63,6 +64,7 @@ interface SessionPuzzleEntry {
 
 const { recordMoveResult, recordMistake, mistakeCount } = useChessProgress()
 const { isMuted } = useTheme()
+const route = useRoute()
 
 // Mode state (Default: "Tidak Terbatas")
 const activeMode = ref<PuzzleModeKey>('unlimited')
@@ -526,6 +528,7 @@ function handlePuzzleMove(payload: { from: Square; to: Square; promotion?: Piece
         dailyStreak.value += 1
         if (!hadMistakeOnCurrent.value) updateRatedScore(true, p.rating)
       }
+      markDailyRoutineTaskComplete('daily-puzzle')
       persistPuzzleStats()
       setTimeout(() => playSuccessChime(isMuted.value), 160)
     } else if (activeMode.value === 'unlimited' || activeMode.value === 'custom') {
@@ -611,6 +614,16 @@ watch([customThemes, customMinElo, customMaxElo], () => {
 
 onMounted(() => {
   hydratePuzzleStats()
+  const qMode = route.query.mode
+  if (
+    qMode === 'daily' ||
+    qMode === 'unlimited' ||
+    qMode === 'rush' ||
+    qMode === 'battle' ||
+    qMode === 'custom'
+  ) {
+    activeMode.value = qMode
+  }
   // Always generate a fresh unseen puzzle on client mount so reloads never repeat!
   spawnNextAutoPuzzle(activeMode.value, true)
 })
@@ -825,7 +838,7 @@ onBeforeUnmount(() => {
                   <h3 class="font-serif text-2xl font-semibold">
                     {{
                       battleFinished
-                        ? `Anda ${battleUserScore} — ${battleRivalScore} ${selectedRival.name}`
+                        ? `Anda ${battleUserScore} : ${battleRivalScore} ${selectedRival.name}`
                         : `Duel vs ${selectedRival.name}`
                     }}
                   </h3>

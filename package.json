@@ -9,6 +9,7 @@
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
+    "test": "node --import ./tests/register-alias.mjs --test tests/*.test.ts",
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
@@ -24,5 +25,22 @@
     "tailwindcss": "^4.1.11",
     "typescript": "^5.8.3",
     "vue-tsc": "^2.2.10"
-  }
+  },
+  "version": "1.0.0",
+  "description": "**Grandmaster Atelier** — Studio interaktif pelatih repertoar pembukaan, taktik babak akhir, Sinema Taktik, arena pertandingan Bot (250–3200 ELO) / 2 Pemain, dan Sandbox PGN/FEN dalam Bahasa Indonesia dengan sinkronisasi database **TiDB Cloud Serverless**.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muhammadtsani368-cloud/catur-atelier.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/muhammadtsani368-cloud/catur-atelier/issues"
+  },
+  "homepage": "https://github.com/muhammadtsani368-cloud/catur-atelier#readme"
 }

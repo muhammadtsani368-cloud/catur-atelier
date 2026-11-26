@@ -5,6 +5,7 @@ import {
   type OpeningModule,
   type RepertoireModule
 } from '~/utils/chessData'
+import { markDailyRoutineTaskComplete } from '~/utils/dailyRoutine'
 import { getAtelierProfileHeaders } from '~/utils/profileId'
 
 export type CloudSyncStatus = 'idle' | 'syncing' | 'synced' | 'offline'
@@ -259,6 +260,9 @@ export function useChessProgress() {
     if (isCorrect) existing.correct += 1
     existing.lastPracticed = getTodayIso()
     state.value.lineStats[lineId] = existing
+    if (!lineId.startsWith('daily-') && !lineId.startsWith('puz-')) {
+      markDailyRoutineTaskComplete('repertoire-drill')
+    }
     persist()
   }
 

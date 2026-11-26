@@ -1295,7 +1295,7 @@ onBeforeUnmount(() => {
         </nav>
 
         <small class="daytake-demo-note">
-          Grandmaster Atelier — Pelatih pembukaan, lab babak akhir Minimax, dan arena tanding lokal
+          Grandmaster Atelier: Pelatih pembukaan, lab babak akhir Minimax, dan arena tanding lokal
           dalam Bahasa Indonesia. Seluruh progres tersimpan aman di browser Anda.
         </small>
       </footer>

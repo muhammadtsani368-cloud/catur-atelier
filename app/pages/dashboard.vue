@@ -17,6 +17,7 @@ import {
 } from 'lucide-vue-next'
 import InteractiveHoverButton from '~/components/ui/InteractiveHoverButton.vue'
 import type { ChessSide, ModuleCategory, RepertoireModule } from '~/utils/chessData'
+import { markDailyRoutineTaskComplete } from '~/utils/dailyRoutine'
 import {
   playCheckSound,
   playErrorSound,
@@ -168,6 +169,7 @@ function handleDailyPuzzleMove(payload: { from: Square; to: Square; promotion?: 
     puzzleFeedback.value = p.successExplanation
 
     recordMoveResult(`daily-${p.id}`, true)
+    markDailyRoutineTaskComplete('daily-puzzle')
     if (played.san.includes('#') || played.san.includes('+')) {
       playCheckSound(isMuted.value)
     } else if (played.captured) {
@@ -552,6 +554,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </section>
+
+    <!-- Compact 2-Tab Card: 5-Minute Daily Routine & Player DNA Radar -->
+    <DailyRoutineCard />
 
     <!-- Curated Library Section -->
     <section class="space-y-6">

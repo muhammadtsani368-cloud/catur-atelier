@@ -34,6 +34,29 @@
   h1, h2, h3, .font-editorial {
     font-family: var(--font-serif);
   }
+
+  a[href],
+  button:not(:disabled),
+  summary,
+  select:not(:disabled),
+  label[for],
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="switch"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  input:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+
+  :focus-visible {
+    outline: 2px solid #718675;
+    outline-offset: 2px;
+  }
 }
 
 /* Subtle archival paper grain & warm ambient atmosphere (3-4% opacity) */
@@ -157,6 +180,15 @@ html.dark .surface-tactile-card-selected {
   .animate-board-shake,
   .animate-hint-ring {
     animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

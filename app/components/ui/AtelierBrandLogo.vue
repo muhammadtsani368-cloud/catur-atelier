@@ -109,7 +109,7 @@ withDefaults(
       </span>
       <span
         v-if="showSubtitle"
-        class="hidden xl:flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400 whitespace-nowrap mt-0.5"
+        class="hidden xl:flex items-center gap-1.5 font-sans text-[11px] font-medium text-zinc-600 dark:text-zinc-400 whitespace-nowrap mt-0.5"
       >
         <span>Studio Repertoar</span>
         <span class="text-[#C59B46]" aria-hidden="true">◆</span>

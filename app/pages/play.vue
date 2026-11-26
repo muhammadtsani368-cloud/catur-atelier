@@ -4,6 +4,7 @@ import {
   BarChart3,
   Bot,
   Clock,
+  Compass,
   Cpu,
   Eye,
   EyeOff,
@@ -11,17 +12,29 @@ import {
   FlipVertical2,
   Handshake,
   Lightbulb,
+  MessageSquareQuote,
   Play,
   RotateCcw,
+  ShieldAlert,
   SlidersHorizontal,
-  Swords,
   Trophy,
   Undo2,
-  Users
+  Users,
+  X
 } from 'lucide-vue-next'
 import type { MatchEvalPoint } from '~/components/MatchReportModal.vue'
 import type { HistoryMoveItem } from '~/components/MoveHistoryPanel.vue'
 import type { TacticalArrow } from '~/components/TacticalArrowOverlay.vue'
+import {
+  analyzeBoardVision,
+  computeTieredHint,
+  evaluateMoveRisk,
+  getLensPreset,
+  type AdaptiveLensId,
+  type MoveRiskAssessment,
+  type TieredHintResult
+} from '~/utils/adaptiveLensEngine'
+import { markDailyRoutineTaskComplete } from '~/utils/dailyRoutine'
 import {
   analyzeCompletedMatch,
   type AnalyzedMove,
@@ -38,6 +51,12 @@ import {
   type BotTierName
 } from '~/utils/botCatalog'
 import {
+  BOT_PERSONAS,
+  getBotPersona,
+  getPersonaLiveReaction,
+  type BotPersonaId
+} from '~/utils/botPersonas'
+import {
   computeBotMove,
   computeCapturedMaterial,
   evaluateBoard
@@ -45,15 +64,27 @@ import {
 import { formatEvalLabel } from '~/utils/endgameEngine'
 import { getAtelierProfileHeaders } from '~/utils/profileId'
 import {
+  generateLiveCoPilotBrief,
+  generateSocraticReview
+} from '~/utils/socraticCoachEngine'
+import {
   playCheckSound,
   playErrorSound,
   playSuccessChime,
   playWoodenCapture,
   playWoodenMove
 } from '~/utils/sound'
+import {
+  applyOpponentReplyInWhatIf,
+  createWhatIfSession,
+  rewindWhatIfPly,
+  stepWhatIfMove,
+  type WhatIfSessionState
+} from '~/utils/whatIfSimulator'
 
 const route = useRoute()
 const { isMuted } = useTheme()
+const { activeLens, initLens, setLens } = useAdaptiveLens()
 
 type GameMode = 'bot' | 'custom' | 'pvp'
 type SidePreference = 'w' | 'b' | 'random'
@@ -85,6 +116,7 @@ interface PlaySnapshot {
 const gameMode = ref<GameMode>('bot')
 const selectedTier = ref<BotTierName>('Menengah')
 const selectedBotId = ref<string>('bot-citra-1050')
+const selectedPersonaId = ref<BotPersonaId>('default')
 const customElo = ref<number>(1500)
 const playerSidePref = ref<SidePreference>('w')
 const selectedTimeControlId = ref<string>('10+0')
@@ -107,10 +139,43 @@ const snapshots = ref<PlaySnapshot[]>([
 ])
 const viewingPly = ref<number | null>(null)
 const isBotThinking = ref(false)
-const showEvalMeter = ref(false)
+const showEvalMeter = ref(true)
 const liveEvalPawns = ref(0)
 const hintFrom = ref<string | null>(null)
 const hintTo = ref<string | null>(null)
+const hintTier = ref<0 | 1 | 2 | 3>(0)
+const activeHintResult = ref<TieredHintResult | null>(null)
+const botLiveComment = ref<string>('')
+
+// Socratic Blunder Guard (Apprentice lens live sparring)
+const pendingBlunderGuard = ref<{
+  payload: { from: Square; to: Square; promotion?: PieceSymbol }
+  risk: MoveRiskAssessment
+} | null>(null)
+
+// Interactive What-If Simulator (Game Review sandbox)
+const whatIfSession = ref<WhatIfSessionState | null>(null)
+const whatIfError = ref<string | null>(null)
+const whatIfAutoReply = ref(true)
+let whatIfReplyTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearWhatIfReplyTimer() {
+  if (whatIfReplyTimer) {
+    clearTimeout(whatIfReplyTimer)
+    whatIfReplyTimer = null
+  }
+}
+
+function scheduleWhatIfAutoReply() {
+  clearWhatIfReplyTimer()
+  if (!whatIfAutoReply.value || !whatIfSession.value?.pendingOpponentReply) return
+  whatIfReplyTimer = setTimeout(() => {
+    whatIfReplyTimer = null
+    if (!whatIfSession.value?.pendingOpponentReply) return
+    whatIfSession.value = applyOpponentReplyInWhatIf(whatIfSession.value, activeLens.value)
+    playWoodenMove(isMuted.value)
+  }, 380)
+}
 
 // Clock state
 const whiteTimeLeft = ref(600)
@@ -158,6 +223,7 @@ async function triggerGameReview(openPanel = true) {
     })
     if (mySeq === reviewRunSeq) {
       gameReviewReport.value = report
+      markDailyRoutineTaskComplete('match-or-tactics')
     }
   } finally {
     if (mySeq === reviewRunSeq) {
@@ -172,6 +238,7 @@ const activeReviewedMove = computed<AnalyzedMove | null>(() => {
 })
 
 const reviewMoveBadge = computed(() => {
+  if (whatIfSession.value) return null
   const mv = activeReviewedMove.value
   if (!mv || !mv.to) return null
   return {
@@ -183,20 +250,27 @@ const reviewMoveBadge = computed(() => {
 const reviewArrows = computed<TacticalArrow[]>(() => {
   const mv = activeReviewedMove.value
   if (!mv) return []
+  const humanSide: Color = isVsEngine.value ? humanSideInBot.value : 'w'
+  const isHumanMove = mv.color === humanSide
+  const socratic = generateSocraticReview(mv, activeLens.value, humanSide)
+
+  // Always show arrows that are valid on the currently displayed board (mv.afterFen)!
+  if (!isHumanMove) {
+    // On opponent's move: show human's best legal reply arrow (if game not over)
+    return socratic.refutationArrow ? [socratic.refutationArrow] : []
+  }
+
+  const arrows: TacticalArrow[] = []
   const isSuboptimal =
     mv.classification === 'inaccuracy' ||
     mv.classification === 'mistake' ||
     mv.classification === 'miss' ||
     mv.classification === 'blunder'
-  if (!isSuboptimal || !mv.bestMoveFrom || !mv.bestMoveTo) return []
-  if (mv.bestMoveFrom === mv.from && mv.bestMoveTo === mv.to) return []
-  return [
-    {
-      from: mv.bestMoveFrom,
-      to: mv.bestMoveTo,
-      tone: 'plan'
-    }
-  ]
+
+  if (isSuboptimal && socratic.refutationArrow) {
+    arrows.push(socratic.refutationArrow)
+  }
+  return arrows
 })
 
 const whiteReviewInfo = computed(() => playerDisplayInfo('w'))
@@ -305,8 +379,40 @@ function applyBotFromQuery(botIdParam: unknown) {
   selectedBotId.value = found.id
 }
 
+function applyPersonaFromQuery() {
+  const personaParam = route.query.persona
+  if (
+    typeof personaParam === 'string' &&
+    (personaParam === 'default' ||
+      personaParam === 'gambiteer' ||
+      personaParam === 'positional' ||
+      personaParam === 'trickster' ||
+      personaParam === 'fortress')
+  ) {
+    selectedPersonaId.value = personaParam
+  }
+}
+
+function handleLensChange(nextLens: AdaptiveLensId) {
+  setLens(nextLens)
+  showEvalMeter.value = getLensPreset(nextLens).showEvalByDefault
+  if (nextLens !== 'apprentice') {
+    pendingBlunderGuard.value = null
+  }
+}
+
+function handleEscapeKey(e: KeyboardEvent) {
+  if (e.key === 'Escape' && pendingBlunderGuard.value) {
+    pendingBlunderGuard.value = null
+  }
+}
+
 onMounted(() => {
+  initLens()
+  showEvalMeter.value = getLensPreset(activeLens.value).showEvalByDefault
   applyBotFromQuery(route.query.bot)
+  applyPersonaFromQuery()
+  window.addEventListener('keydown', handleEscapeKey)
 })
 
 watch(
@@ -322,6 +428,8 @@ const activeTierGroup = computed(
   () => BOT_TIER_GROUPS.find((t) => t.tier === selectedTier.value) ?? BOT_TIER_GROUPS[1]!
 )
 const botsInSelectedTier = computed<BotCatalogEntry[]>(() => getBotsByTier(selectedTier.value))
+const activePersona = computed(() => getBotPersona(selectedPersonaId.value))
+const activeLensPreset = computed(() => getLensPreset(activeLens.value))
 const activeBot = computed<BotCatalogEntry>(() =>
   gameMode.value === 'custom'
     ? buildCustomEngineBot(customElo.value)
@@ -345,6 +453,11 @@ const isInspectingHistory = computed(
   () => viewingPly.value !== null && viewingPly.value !== latestPly.value
 )
 
+watch(viewingPly, () => {
+  whatIfSession.value = null
+  whatIfError.value = null
+})
+
 const displayedSnapshot = computed<PlaySnapshot>(() => {
   return (
     snapshots.value[displayedPly.value] ?? {
@@ -357,12 +470,74 @@ const displayedSnapshot = computed<PlaySnapshot>(() => {
   )
 })
 
+const boardFen = computed(() => {
+  if (showGameReview.value && whatIfSession.value) {
+    return whatIfSession.value.currentFen
+  }
+  return displayedSnapshot.value.fen
+})
+
+const boardLastMove = computed<{ from: string; to: string } | null>(() => {
+  if (showGameReview.value && whatIfSession.value) {
+    const bms = whatIfSession.value.branchMoves
+    const last = bms[bms.length - 1]
+    return last ? { from: last.from, to: last.to } : null
+  }
+  return displayedSnapshot.value.lastMove
+})
+
 const currentTurn = computed<Color>(() => {
   try {
     return new Chess(displayedSnapshot.value.fen).turn()
   } catch {
     return 'w'
   }
+})
+
+const liveBoardVision = computed(() => {
+  const perspective: Color = isVsEngine.value ? humanSideInBot.value : currentTurn.value
+  return analyzeBoardVision(boardFen.value, perspective, activeLens.value)
+})
+
+const liveCoPilotBrief = computed(() => {
+  if (!matchStarted.value || gameResult.value || showGameReview.value) return null
+  const perspective: Color = isVsEngine.value ? humanSideInBot.value : currentTurn.value
+  const lastSan = displayedPly.value > 0 ? displayedSnapshot.value.san : null
+  const brief = generateLiveCoPilotBrief(displayedSnapshot.value.fen, lastSan, perspective, activeLens.value)
+  return brief.visibleOnStage ? brief : null
+})
+
+const boardHangingSquares = computed<string[]>(() => {
+  if (showGameReview.value && !whatIfSession.value) return []
+  return liveBoardVision.value.hangingSquares
+})
+
+const boardTensionSquares = computed<string[]>(() => {
+  if (showGameReview.value) return []
+  return liveBoardVision.value.tensionSquares
+})
+
+const boardArrows = computed<TacticalArrow[]>(() => {
+  if (showGameReview.value && whatIfSession.value) {
+    const arrows: TacticalArrow[] = []
+    if (whatIfSession.value.planArrow) arrows.push(whatIfSession.value.planArrow)
+    if (whatIfSession.value.refutationArrow) arrows.push(whatIfSession.value.refutationArrow)
+    return arrows
+  }
+  if (showGameReview.value) {
+    return reviewArrows.value
+  }
+  if (pendingBlunderGuard.value?.risk.punishmentFrom && pendingBlunderGuard.value?.risk.punishmentTo) {
+    return [
+      {
+        from: pendingBlunderGuard.value.risk.punishmentFrom,
+        to: pendingBlunderGuard.value.risk.punishmentTo,
+        tone: 'threat'
+      }
+    ]
+  }
+  if (!matchStarted.value || gameResult.value) return []
+  return [...liveBoardVision.value.threatArrows, ...liveBoardVision.value.planArrows]
 })
 
 const historyItems = computed<HistoryMoveItem[]>(() => {
@@ -374,9 +549,20 @@ const historyItems = computed<HistoryMoveItem[]>(() => {
   }))
 })
 
-const captured = computed(() => computeCapturedMaterial(displayedSnapshot.value.fen))
+const captured = computed(() => computeCapturedMaterial(boardFen.value))
 
 const canInteractBoard = computed(() => {
+  if (showGameReview.value && whatIfSession.value) {
+    if (whatIfSession.value.pendingOpponentReply) return false
+    try {
+      return new Chess(whatIfSession.value.currentFen).turn() === whatIfSession.value.moverPerspective
+    } catch {
+      return false
+    }
+  }
+  if (pendingBlunderGuard.value) {
+    return false
+  }
   if (!matchStarted.value || gameResult.value !== null || isInspectingHistory.value || isBotThinking.value) {
     return false
   }
@@ -387,8 +573,19 @@ const canInteractBoard = computed(() => {
 })
 
 const boardAllowedColor = computed<Color | 'both'>(() => {
+  if (showGameReview.value && whatIfSession.value) {
+    return whatIfSession.value.moverPerspective
+  }
   if (isVsEngine.value) return humanSideInBot.value
   return 'both'
+})
+
+const maxHintTier = computed(() => activeLensPreset.value.maxHintTier)
+const hintButtonLabel = computed(() => {
+  if (maxHintTier.value === 0) return 'Tanpa Petunjuk'
+  if (hintTier.value === 0) return `Petunjuk (1/${maxHintTier.value})`
+  if (hintTier.value < maxHintTier.value) return `Petunjuk (${hintTier.value + 1}/${maxHintTier.value})`
+  return 'Ulang Petunjuk'
 })
 
 const canUndo = computed(
@@ -401,9 +598,15 @@ const bottomColor = computed<Color>(() => orientation.value)
 function playerDisplayInfo(color: Color) {
   if (isVsEngine.value) {
     const isBot = color !== humanSideInBot.value
+    const personaSuffix =
+      isBot && selectedPersonaId.value !== 'default' ? ` · ${activePersona.value.nameId}` : ''
     return {
       name: isBot ? `${activeBot.value.name}` : 'Anda',
-      badge: isBot ? `${activeBot.value.elo} ELO` : color === 'w' ? 'Putih' : 'Hitam',
+      badge: isBot
+        ? `${activeBot.value.elo} ELO${personaSuffix}`
+        : color === 'w'
+          ? 'Putih'
+          : 'Hitam',
       isBot,
       avatarPiece: isBot ? activeBot.value.avatarPiece : null,
       timeLeft: color === 'w' ? whiteTimeLeft.value : blackTimeLeft.value,
@@ -446,6 +649,7 @@ function formatClock(seconds: number): string {
 }
 
 function clearTimers() {
+  clearWhatIfReplyTimer()
   if (botTimer) {
     clearTimeout(botTimer)
     botTimer = null
@@ -582,7 +786,7 @@ function scheduleBotMoveIfNeeded() {
 
   botTimer = setTimeout(() => {
     const sanHistory = snapshots.value.slice(1).map((s) => s.san)
-    const res = computeBotMove(latest.fen, bot, sanHistory)
+    const res = computeBotMove(latest.fen, bot, sanHistory, selectedPersonaId.value)
     isBotThinking.value = false
 
     if (!res.move || gameResult.value) return
@@ -610,6 +814,20 @@ function scheduleBotMoveIfNeeded() {
     viewingPly.value = null
     appendEvalPoint(after, nextPly, played.san, latest.fen, played.color)
 
+    // Update humanized bot sparring dialogue
+    const botAdvantage = humanSideInBot.value === 'w' ? -liveEvalPawns.value : liveEvalPawns.value
+    const moment =
+      played.san.includes('+') || played.san.includes('#')
+        ? 'check_delivered'
+        : played.captured
+          ? 'capture_made'
+          : nextPly >= 46
+            ? 'endgame_reached'
+            : botAdvantage <= -1.6
+              ? 'under_pressure'
+              : 'gambit_or_attack'
+    botLiveComment.value = getPersonaLiveReaction(selectedPersonaId.value, moment, nextPly)
+
     if (played.san.includes('+') || played.san.includes('#')) {
       playCheckSound(isMuted.value)
     } else if (played.captured) {
@@ -620,6 +838,13 @@ function scheduleBotMoveIfNeeded() {
 
     checkGameEnd(after)
   }, thinkDelay)
+}
+
+function clearHints() {
+  hintTier.value = 0
+  activeHintResult.value = null
+  hintFrom.value = null
+  hintTo.value = null
 }
 
 function startNewMatch() {
@@ -660,13 +885,21 @@ function startNewMatch() {
   showGameReview.value = false
   isAnalyzingReview.value = false
   gameReviewReport.value = null
+  whatIfSession.value = null
+  whatIfError.value = null
+  pendingBlunderGuard.value = null
   reviewRunSeq += 1
   viewingPly.value = null
   isBotThinking.value = false
   gameResult.value = null
   liveEvalPawns.value = 0
-  hintFrom.value = null
-  hintTo.value = null
+  clearHints()
+
+  if (isVsEngine.value) {
+    botLiveComment.value = getPersonaLiveReaction(selectedPersonaId.value, 'match_start', 0)
+  } else {
+    botLiveComment.value = ''
+  }
 
   const baseSec = activeTimeControl.value.baseSeconds
   whiteTimeLeft.value = baseSec
@@ -680,8 +913,22 @@ function startNewMatch() {
   }
 }
 
-function handleMove(payload: { from: Square; to: Square; promotion?: PieceSymbol }) {
-  if (!canInteractBoard.value) return
+function handleWhatIfBoardMove(payload: { from: Square; to: Square; promotion?: PieceSymbol }) {
+  if (!whatIfSession.value) return
+  clearWhatIfReplyTimer()
+  const outcome = stepWhatIfMove(whatIfSession.value, payload, activeLens.value)
+  if (!outcome.valid) {
+    whatIfError.value = outcome.errorMessage ?? 'Langkah tersebut tidak sah pada cabang ini.'
+    playErrorSound(isMuted.value)
+    return
+  }
+  whatIfError.value = null
+  whatIfSession.value = outcome.nextSession
+  playWoodenMove(isMuted.value)
+  scheduleWhatIfAutoReply()
+}
+
+function commitLiveMove(payload: { from: Square; to: Square; promotion?: PieceSymbol }) {
   const latest = snapshots.value[latestPly.value]
   if (!latest) return
 
@@ -697,8 +944,8 @@ function handleMove(payload: { from: Square; to: Square; promotion?: PieceSymbol
     return
   }
 
-  hintFrom.value = null
-  hintTo.value = null
+  pendingBlunderGuard.value = null
+  clearHints()
 
   if (activeTimeControl.value.baseSeconds > 0 && activeTimeControl.value.incrementSeconds > 0) {
     if (played.color === 'w') whiteTimeLeft.value += activeTimeControl.value.incrementSeconds
@@ -737,14 +984,145 @@ function handleMove(payload: { from: Square; to: Square; promotion?: PieceSymbol
   }
 }
 
+function handleMove(payload: { from: Square; to: Square; promotion?: PieceSymbol }) {
+  if (showGameReview.value && whatIfSession.value) {
+    handleWhatIfBoardMove(payload)
+    return
+  }
+
+  if (!canInteractBoard.value) return
+  const latest = snapshots.value[latestPly.value]
+  if (!latest) return
+
+  // Check Socratic Blunder Guard when Apprentice Lens is active
+  if (activeLens.value === 'apprentice' && isVsEngine.value) {
+    const risk = evaluateMoveRisk(latest.fen, payload, activeLens.value)
+    if (risk.shouldWarn) {
+      pendingBlunderGuard.value = { payload, risk }
+      playErrorSound(isMuted.value)
+      return
+    }
+  }
+
+  commitLiveMove(payload)
+}
+
+function confirmBlunderGuardMove() {
+  if (!pendingBlunderGuard.value) return
+  const chosen = pendingBlunderGuard.value.payload
+  pendingBlunderGuard.value = null
+  commitLiveMove(chosen)
+}
+
+function dismissBlunderGuard() {
+  pendingBlunderGuard.value = null
+}
+
+function startWhatIfSession(candidateSan?: string) {
+  clearWhatIfReplyTimer()
+  const mv = activeReviewedMove.value
+  const humanSide: Color = isVsEngine.value ? humanSideInBot.value : 'w'
+  const isOpponentNonMate = Boolean(mv && mv.color !== humanSide && !mv.isMate)
+
+  // If inspecting an opponent's move, start What-If on mv.afterFen so the PLAYER moves THEIR OWN pieces!
+  const originFen = mv
+    ? isOpponentNonMate
+      ? mv.afterFen
+      : mv.beforeFen
+    : (snapshots.value[0]?.fen ?? new Chess().fen())
+
+  const originLabel = mv
+    ? isOpponentNonMate
+      ? `Balasanmu setelah ${mv.moveNumber}${mv.color === 'w' ? '.' : '...'} ${mv.san}`
+      : `Langkah ${mv.moveNumber}${mv.color === 'w' ? '.' : '...'} (alternatif ${mv.san})`
+    : 'Posisi Awal'
+
+  let session = createWhatIfSession(
+    originFen,
+    originLabel,
+    isOpponentNonMate ? null : (mv?.san ?? null),
+    activeLens.value
+  )
+  whatIfError.value = null
+
+  if (candidateSan) {
+    const outcome = stepWhatIfMove(session, candidateSan, activeLens.value)
+    if (outcome.valid) {
+      session = outcome.nextSession
+      playWoodenMove(isMuted.value)
+    } else if (outcome.errorMessage) {
+      whatIfError.value = outcome.errorMessage
+    }
+  }
+
+  whatIfSession.value = session
+  if (candidateSan) {
+    scheduleWhatIfAutoReply()
+  }
+}
+
+function playWhatIfCandidate(san: string) {
+  if (!whatIfSession.value) return
+  clearWhatIfReplyTimer()
+  const outcome = stepWhatIfMove(whatIfSession.value, san, activeLens.value)
+  if (!outcome.valid) {
+    whatIfError.value = outcome.errorMessage ?? 'Langkah kandidat tidak dapat dijalankan.'
+    return
+  }
+  whatIfError.value = null
+  whatIfSession.value = outcome.nextSession
+  playWoodenMove(isMuted.value)
+  scheduleWhatIfAutoReply()
+}
+
+function playWhatIfOpponentReply() {
+  if (!whatIfSession.value) return
+  clearWhatIfReplyTimer()
+  whatIfError.value = null
+  whatIfSession.value = applyOpponentReplyInWhatIf(whatIfSession.value, activeLens.value)
+  playWoodenMove(isMuted.value)
+}
+
+function toggleWhatIfAutoReply() {
+  whatIfAutoReply.value = !whatIfAutoReply.value
+  if (whatIfAutoReply.value && whatIfSession.value?.pendingOpponentReply) {
+    scheduleWhatIfAutoReply()
+  }
+}
+
+function rewindWhatIfBranch() {
+  if (!whatIfSession.value) return
+  clearWhatIfReplyTimer()
+  whatIfError.value = null
+  whatIfSession.value = rewindWhatIfPly(whatIfSession.value, activeLens.value)
+}
+
+function resetWhatIfBranch() {
+  if (!whatIfSession.value) return
+  clearWhatIfReplyTimer()
+  whatIfError.value = null
+  whatIfSession.value = createWhatIfSession(
+    whatIfSession.value.originFen,
+    whatIfSession.value.originLabel,
+    whatIfSession.value.originalMoveSan,
+    activeLens.value
+  )
+}
+
+function closeWhatIfSession() {
+  clearWhatIfReplyTimer()
+  whatIfSession.value = null
+  whatIfError.value = null
+}
+
 function undoMove() {
   if (!canUndo.value) return
   if (botTimer) {
     clearTimeout(botTimer)
     botTimer = null
   }
-  hintFrom.value = null
-  hintTo.value = null
+  pendingBlunderGuard.value = null
+  clearHints()
 
   let nextLen = snapshots.value.length - 1
   if (isVsEngine.value && nextLen > 1) {
@@ -766,20 +1144,22 @@ function undoMove() {
 }
 
 function requestHint() {
-  if (!canInteractBoard.value) return
+  if (!canInteractBoard.value || maxHintTier.value === 0) return
   const latest = snapshots.value[latestPly.value]
   if (!latest) return
-  const gmProfile = buildCustomEngineBot(2600)
-  const res = computeBotMove(latest.fen, { ...gmProfile, timeBudgetMs: 240, randomness: 0 }, [])
-  if (!res.move) return
-  hintFrom.value = res.move.from
-  hintTo.value = res.move.to
-  liveEvalPawns.value = res.evaluation
+
+  const nextTier = (hintTier.value >= maxHintTier.value ? 1 : hintTier.value + 1) as 1 | 2 | 3
+  const res = computeTieredHint(latest.fen, nextTier, activeLens.value)
+  hintTier.value = nextTier
+  activeHintResult.value = res
+  hintFrom.value = res.hintFrom
+  hintTo.value = res.hintTo
 }
 
 function resignMatch() {
   if (!matchStarted.value || gameResult.value) return
   clearTimers()
+  pendingBlunderGuard.value = null
   const resigningColor: Color = isVsEngine.value ? humanSideInBot.value : currentTurn.value
   const winner: Color = resigningColor === 'w' ? 'b' : 'w'
   const resigningName = playerDisplayInfo(resigningColor).name
@@ -795,6 +1175,7 @@ function resignMatch() {
 function agreeDraw() {
   if (!matchStarted.value || gameResult.value) return
   clearTimers()
+  pendingBlunderGuard.value = null
   gameResult.value = {
     title: 'Remis atas Kesepakatan',
     subtitle: 'Kedua pemain sepakat mengakhiri pertandingan dengan hasil imbang.',
@@ -810,10 +1191,17 @@ function backToSetup() {
   showGameReview.value = false
   isAnalyzingReview.value = false
   gameReviewReport.value = null
+  whatIfSession.value = null
+  whatIfError.value = null
+  pendingBlunderGuard.value = null
   reviewRunSeq += 1
   isBotThinking.value = false
-  hintFrom.value = null
-  hintTo.value = null
+  clearHints()
+}
+
+async function goToMainMenu() {
+  clearTimers()
+  await navigateTo('/')
 }
 
 function switchGameMode(mode: GameMode) {
@@ -825,11 +1213,18 @@ function switchGameMode(mode: GameMode) {
   showGameReview.value = false
   isAnalyzingReview.value = false
   gameReviewReport.value = null
+  whatIfSession.value = null
+  whatIfError.value = null
+  pendingBlunderGuard.value = null
   reviewRunSeq += 1
+  clearHints()
 }
 
 onBeforeUnmount(() => {
   clearTimers()
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleEscapeKey)
+  }
 })
 </script>
 
@@ -838,17 +1233,11 @@ onBeforeUnmount(() => {
     <!-- Top Header & Mode Switcher -->
     <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
       <div>
-        <div
-          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-800 text-xs font-medium text-[#5D7463] dark:text-[#A4BFA9] mb-2"
-        >
-          <Swords class="w-3.5 h-3.5" />
-          <span>Arena Pertandingan</span>
-        </div>
         <h1 class="font-serif text-2xl sm:text-3xl font-semibold text-zinc-900 dark:text-zinc-50">
-          Main vs Bot Komputer &amp; 2 Pemain
+          Studio Sparring &amp; Pelatih Sokratik
         </h1>
-        <p class="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
-          Pilih lawan dari 5 tingkatan bot (250–2850 ELO), atur Mesin Kustom hingga 3200 ELO, atau main 2 orang di satu papan.
+        <p class="text-sm text-zinc-600 dark:text-zinc-400 mt-1 max-w-2xl">
+          Berlatih melawan kepribadian bot yang manusiawi (250 hingga 3200 ELO) dengan Lensa Panduan yang menyesuaikan diri dari Perintis hingga Master, atau bermain 2 orang di satu papan.
         </p>
       </div>
 
@@ -862,7 +1251,7 @@ onBeforeUnmount(() => {
           type="button"
           role="tab"
           :aria-selected="gameMode === 'bot'"
-          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition active:scale-[0.98] cursor-pointer"
+          class="min-h-[44px] inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition active:scale-[0.98] cursor-pointer"
           :class="
             gameMode === 'bot'
               ? 'bg-[#202321] text-[#F7F5F0] dark:bg-[#EDEAE0] dark:text-[#202321]'
@@ -870,29 +1259,29 @@ onBeforeUnmount(() => {
           "
           @click="switchGameMode('bot')"
         >
-          <Bot class="w-4 h-4" />
+          <Bot class="w-4 h-4" aria-hidden="true" />
           <span>Katalog Bot</span>
         </button>
         <button
           type="button"
           role="tab"
           :aria-selected="gameMode === 'custom'"
-          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition active:scale-[0.98] cursor-pointer"
+          class="min-h-[44px] inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition active:scale-[0.98] cursor-pointer"
           :class="
             gameMode === 'custom'
-              ? 'bg-[#B85D43] text-white'
+              ? 'bg-[#9B452C] text-white'
               : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
           "
           @click="switchGameMode('custom')"
         >
-          <SlidersHorizontal class="w-4 h-4" />
+          <SlidersHorizontal class="w-4 h-4" aria-hidden="true" />
           <span>Mesin Kustom</span>
         </button>
         <button
           type="button"
           role="tab"
           :aria-selected="gameMode === 'pvp'"
-          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition active:scale-[0.98] cursor-pointer"
+          class="min-h-[44px] inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition active:scale-[0.98] cursor-pointer"
           :class="
             gameMode === 'pvp'
               ? 'bg-[#526857] text-white'
@@ -900,7 +1289,7 @@ onBeforeUnmount(() => {
           "
           @click="switchGameMode('pvp')"
         >
-          <Users class="w-4 h-4" />
+          <Users class="w-4 h-4" aria-hidden="true" />
           <span>Main 2 Orang</span>
         </button>
       </div>
@@ -936,20 +1325,20 @@ onBeforeUnmount(() => {
               <span v-else>{{ topColor === 'w' ? 'P' : 'H' }}</span>
             </div>
             <div class="min-w-0">
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">
                   {{ topPlayer.name }}
                 </span>
                 <span
-                  class="font-mono text-[11px] px-2 py-0.5 rounded-full bg-[#F8F7F4] dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700"
+                  class="font-mono text-[11px] px-2 py-0.5 rounded-full bg-[#F8F7F4] dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700"
                 >
                   {{ topPlayer.badge }}
                 </span>
                 <span
                   v-if="topPlayer.isBot && isBotThinking"
-                  class="text-[11px] text-[#5D7463] dark:text-[#9FC0A8] animate-pulse font-medium"
+                  class="text-[11px] text-[#495C4D] dark:text-[#9FC0A8] font-medium"
                 >
-                  Berpikir...
+                  Sedang menghitung...
                 </span>
               </div>
               <!-- Captured pieces -->
@@ -963,7 +1352,7 @@ onBeforeUnmount(() => {
                 </div>
                 <span
                   v-if="topPlayer.materialAdvantage > 0"
-                  class="ml-2 font-mono text-[11px] font-semibold text-zinc-500 dark:text-zinc-400"
+                  class="ml-2 font-mono text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
                 >
                   +{{ topPlayer.materialAdvantage }}
                 </span>
@@ -977,26 +1366,134 @@ onBeforeUnmount(() => {
             :class="
               topPlayer.isActiveTurn
                 ? 'bg-[#18181B] text-white border-[#18181B] dark:bg-[#EDEAE0] dark:text-[#18181B]'
-                : 'bg-[#F8F7F4] dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800'
+                : 'bg-[#F8F7F4] dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800'
             "
           >
             {{ formatClock(topPlayer.timeLeft) }}
           </div>
         </div>
 
+        <!-- Humanized Bot Persona Live Dialogue Bubble -->
+        <div
+          v-if="matchStarted && !gameResult && isVsEngine && botLiveComment"
+          class="max-w-[560px] mx-auto rounded-xl border border-[#E4DFD5] dark:border-zinc-800 bg-[#FAF8F4] dark:bg-zinc-900/80 px-3.5 py-2 flex items-start gap-2.5 text-xs"
+        >
+          <MessageSquareQuote
+            class="w-4 h-4 text-[#526857] dark:text-[#9FC0A8] shrink-0 mt-0.5"
+            aria-hidden="true"
+          />
+          <p class="text-zinc-700 dark:text-zinc-200 leading-relaxed">
+            <strong class="font-semibold text-zinc-900 dark:text-zinc-100">
+              {{ activeBot.name }} ({{ activePersona.nameId }}):
+            </strong>
+            {{ botLiveComment }}
+          </p>
+        </div>
+
+        <!-- What-If Sandbox Active Banner -->
+        <div
+          v-if="showGameReview && whatIfSession"
+          class="max-w-[560px] mx-auto rounded-xl border border-[#718675]/55 bg-[#EEF3EF] dark:bg-[#1E2620] px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs"
+        >
+          <span class="font-semibold text-[#233227] dark:text-[#DCEBE0]">
+            Papan Uji What-If Aktif ({{ whatIfSession.originLabel }}). Gerakkan bidak langsung di papan.
+          </span>
+          <button
+            type="button"
+            class="min-h-[44px] px-3 py-1.5 rounded-lg font-semibold bg-[#202321] text-[#F7F5F0] dark:bg-[#EDEAE0] dark:text-[#202321]"
+            @click="closeWhatIfSession"
+          >
+            Selesai Uji
+          </button>
+        </div>
+
         <!-- Chessboard -->
         <ChessBoard
-          :fen="displayedSnapshot.fen"
+          :fen="boardFen"
           :orientation="orientation"
           :interactive="canInteractBoard"
           :allowed-color="boardAllowedColor"
-          :last-move="displayedSnapshot.lastMove"
+          :last-move="boardLastMove"
           :hint-from="isInspectingHistory || showGameReview ? null : hintFrom"
           :hint-to="isInspectingHistory || showGameReview ? null : hintTo"
-          :arrows="reviewArrows"
+          :hanging-squares="boardHangingSquares"
+          :tension-squares="boardTensionSquares"
+          :arrows="boardArrows"
           :move-badge="reviewMoveBadge"
           @move="handleMove"
         />
+
+        <!-- Live Socratic Blunder Guard (Apprentice Lens) -->
+        <div
+          v-if="pendingBlunderGuard"
+          role="alertdialog"
+          aria-labelledby="blunder-guard-title"
+          aria-describedby="blunder-guard-desc"
+          class="max-w-[560px] mx-auto rounded-2xl border-2 border-[#B85D43] bg-[#FDF7F5] dark:bg-[#261B18] p-4 space-y-3"
+        >
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <ShieldAlert class="w-5 h-5 text-[#B85D43] dark:text-[#F09A82] shrink-0" aria-hidden="true" />
+              <h3 id="blunder-guard-title" class="font-serif text-base font-semibold text-zinc-900 dark:text-zinc-50">
+                {{ pendingBlunderGuard.risk.warningTitle }}
+              </h3>
+            </div>
+            <span
+              v-if="pendingBlunderGuard.risk.opponentPunishmentSan"
+              class="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-[#B85D43]/15 dark:bg-[#B85D43]/30 text-[#8F3E27] dark:text-[#FAD7CD]"
+            >
+              Ancaman: {{ pendingBlunderGuard.risk.opponentPunishmentSan }}
+            </span>
+          </div>
+
+          <p id="blunder-guard-desc" class="text-xs text-zinc-800 dark:text-zinc-200 leading-relaxed">
+            {{ pendingBlunderGuard.risk.socraticPrompt }}
+          </p>
+
+          <div class="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="button"
+              class="min-h-[44px] flex-1 px-4 py-2 rounded-xl text-xs font-semibold bg-[#202321] text-[#F7F5F0] dark:bg-[#EDEAE0] dark:text-[#202321] hover:opacity-90 transition"
+              @click="dismissBlunderGuard"
+            >
+              Tarik &amp; Pikir Ulang
+            </button>
+            <button
+              type="button"
+              class="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold border border-[#B85D43] text-[#9A4229] dark:text-[#F4B4A2] bg-white dark:bg-zinc-900 hover:bg-[#B85D43]/10 transition"
+              @click="confirmBlunderGuardMove"
+            >
+              Tetap Mainkan {{ pendingBlunderGuard.risk.attemptedSan }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Tiered Socratic Hint Card -->
+        <div
+          v-if="activeHintResult && !showGameReview && !gameResult"
+          role="status"
+          class="max-w-[560px] mx-auto rounded-xl border border-[#718675]/50 bg-[#F2F6F3] dark:bg-[#1D251F] px-3.5 py-3 flex items-start justify-between gap-3"
+        >
+          <div class="space-y-1">
+            <div class="flex items-center gap-1.5">
+              <Lightbulb class="w-4 h-4 text-[#526857] dark:text-[#9FC0A8] shrink-0" aria-hidden="true" />
+              <span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                {{ activeHintResult.headline }}
+              </span>
+            </div>
+            <p class="text-xs text-zinc-700 dark:text-zinc-200 leading-relaxed">
+              {{ activeHintResult.message }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 transition"
+            aria-label="Tutup petunjuk"
+            @click="clearHints"
+          >
+            <X class="w-4 h-4" aria-hidden="true" />
+          </button>
+        </div>
 
         <!-- Bottom Player Bar -->
         <div
@@ -1024,12 +1521,12 @@ onBeforeUnmount(() => {
               <span v-else>{{ bottomColor === 'w' ? 'P' : 'H' }}</span>
             </div>
             <div class="min-w-0">
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">
                   {{ bottomPlayer.name }}
                 </span>
                 <span
-                  class="font-mono text-[11px] px-2 py-0.5 rounded-full bg-[#F8F7F4] dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700"
+                  class="font-mono text-[11px] px-2 py-0.5 rounded-full bg-[#F8F7F4] dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700"
                 >
                   {{ bottomPlayer.badge }}
                 </span>
@@ -1044,7 +1541,7 @@ onBeforeUnmount(() => {
                 </div>
                 <span
                   v-if="bottomPlayer.materialAdvantage > 0"
-                  class="ml-2 font-mono text-[11px] font-semibold text-zinc-500 dark:text-zinc-400"
+                  class="ml-2 font-mono text-[11px] font-semibold text-zinc-600 dark:text-zinc-400"
                 >
                   +{{ bottomPlayer.materialAdvantage }}
                 </span>
@@ -1058,7 +1555,7 @@ onBeforeUnmount(() => {
             :class="
               bottomPlayer.isActiveTurn
                 ? 'bg-[#18181B] text-white border-[#18181B] dark:bg-[#EDEAE0] dark:text-[#18181B]'
-                : 'bg-[#F8F7F4] dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800'
+                : 'bg-[#F8F7F4] dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800'
             "
           >
             {{ formatClock(bottomPlayer.timeLeft) }}
@@ -1067,7 +1564,7 @@ onBeforeUnmount(() => {
 
         <!-- History Inspection Banner -->
         <div
-          v-if="isInspectingHistory"
+          v-if="isInspectingHistory && !showGameReview"
           class="max-w-[560px] mx-auto rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 px-4 py-2.5 flex items-center justify-between gap-3 text-xs"
         >
           <span class="text-amber-900 dark:text-amber-200 font-medium">
@@ -1075,7 +1572,7 @@ onBeforeUnmount(() => {
           </span>
           <button
             type="button"
-            class="px-3 py-1 rounded-lg font-semibold bg-amber-900 text-white dark:bg-amber-200 dark:text-amber-950 cursor-pointer"
+            class="min-h-[44px] px-3.5 py-2 rounded-lg font-semibold bg-amber-900 text-white dark:bg-amber-200 dark:text-amber-950"
             @click="viewingPly = null"
           >
             Kembali ke Posisi Aktif
@@ -1084,57 +1581,57 @@ onBeforeUnmount(() => {
 
         <!-- Match Action Bar (shown when match is active) -->
         <div
-          v-if="matchStarted"
+          v-if="matchStarted && !showGameReview"
           class="max-w-[560px] mx-auto grid grid-cols-2 sm:grid-cols-4 gap-2"
         >
           <button
             type="button"
-            class="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-zinc-700 dark:text-zinc-200 hover:border-[#738578] disabled:opacity-40 transition cursor-pointer"
+            class="min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-zinc-700 dark:text-zinc-200 hover:border-[#738578] disabled:opacity-40 disabled:cursor-not-allowed transition"
             :disabled="!canUndo"
             @click="undoMove"
           >
-            <Undo2 class="w-4 h-4" />
+            <Undo2 class="w-4 h-4" aria-hidden="true" />
             <span>Mundur</span>
           </button>
 
           <button
             v-if="isVsEngine"
             type="button"
-            class="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-zinc-700 dark:text-zinc-200 hover:border-[#B85D43] disabled:opacity-40 transition cursor-pointer"
-            :disabled="!canInteractBoard"
+            class="min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-zinc-700 dark:text-zinc-200 hover:border-[#B85D43] disabled:opacity-40 disabled:cursor-not-allowed transition"
+            :disabled="!canInteractBoard || maxHintTier === 0"
             @click="requestHint"
           >
-            <Lightbulb class="w-4 h-4 text-[#B85D43]" />
-            <span>Petunjuk</span>
+            <Lightbulb class="w-4 h-4 text-[#B85D43]" aria-hidden="true" />
+            <span>{{ hintButtonLabel }}</span>
           </button>
 
           <button
             v-else
             type="button"
-            class="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-zinc-700 dark:text-zinc-200 hover:border-[#738578] disabled:opacity-40 transition cursor-pointer"
+            class="min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-zinc-700 dark:text-zinc-200 hover:border-[#738578] disabled:opacity-40 disabled:cursor-not-allowed transition"
             :disabled="Boolean(gameResult)"
             @click="agreeDraw"
           >
-            <Handshake class="w-4 h-4" />
+            <Handshake class="w-4 h-4" aria-hidden="true" />
             <span>Sepakat Remis</span>
           </button>
 
           <button
             type="button"
-            class="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-zinc-700 dark:text-zinc-200 hover:border-[#738578] transition cursor-pointer"
+            class="min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-zinc-700 dark:text-zinc-200 hover:border-[#738578] transition"
             @click="orientation = orientation === 'w' ? 'b' : 'w'"
           >
-            <FlipVertical2 class="w-4 h-4" />
+            <FlipVertical2 class="w-4 h-4" aria-hidden="true" />
             <span>Putar Papan</span>
           </button>
 
           <button
             type="button"
-            class="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-[#B85D43] hover:bg-[#FDF6F3] dark:hover:bg-[#2A1B16] disabled:opacity-40 transition cursor-pointer"
+            class="min-h-[44px] inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-[#9A4229] dark:text-[#F09A82] hover:bg-[#FDF6F3] dark:hover:bg-[#2A1B16] disabled:opacity-40 disabled:cursor-not-allowed transition"
             :disabled="Boolean(gameResult)"
             @click="resignMatch"
           >
-            <Flag class="w-4 h-4" />
+            <Flag class="w-4 h-4" aria-hidden="true" />
             <span>Menyerah</span>
           </button>
         </div>
@@ -1161,9 +1658,28 @@ onBeforeUnmount(() => {
           :human-side="isVsEngine ? humanSideInBot : 'w'"
           :opponent-elo="isVsEngine ? activeBot.elo : 0"
           :final-fen="snapshots[latestPly]?.fen ?? displayedSnapshot.fen"
+          :lens="activeLens"
+          :what-if-session="whatIfSession"
+          :what-if-error="whatIfError"
+          :what-if-auto-reply="whatIfAutoReply"
           @select-ply="viewingPly = $event"
-          @close="showGameReview = false"
+          @close="
+            () => {
+              showGameReview = false
+              closeWhatIfSession()
+            }
+          "
           @rematch="startNewMatch"
+          @update-lens="handleLensChange"
+          @start-what-if="startWhatIfSession"
+          @play-what-if-candidate="playWhatIfCandidate"
+          @play-what-if-opponent-reply="playWhatIfOpponentReply"
+          @toggle-what-if-auto-reply="toggleWhatIfAutoReply"
+          @rewind-what-if="rewindWhatIfBranch"
+          @reset-what-if="resetWhatIfBranch"
+          @close-what-if="closeWhatIfSession"
+          @back-to-setup="backToSetup"
+          @main-menu="goToMainMenu"
         />
 
         <!-- Game Result Banner (Shown when Game Review panel is closed) -->
@@ -1177,7 +1693,7 @@ onBeforeUnmount(() => {
           "
         >
           <div class="flex items-start gap-3">
-            <Trophy class="w-5 h-5 text-[#5D7463] dark:text-[#A3C4AB] mt-0.5 shrink-0" />
+            <Trophy class="w-5 h-5 text-[#5D7463] dark:text-[#A3C4AB] mt-0.5 shrink-0" aria-hidden="true" />
             <div>
               <h3 class="font-serif text-lg font-semibold text-zinc-900 dark:text-zinc-100">
                 {{ gameResult.title }}
@@ -1190,7 +1706,7 @@ onBeforeUnmount(() => {
           <div class="flex flex-wrap gap-2 pt-1">
             <button
               type="button"
-              class="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[#81B64C] text-white hover:bg-[#71A33F] transition cursor-pointer shadow-sm"
+              class="min-h-[44px] w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[#3F5344] text-white hover:bg-[#334438] transition shadow-sm"
               @click="
                 () => {
                   if (!gameReviewReport && !isAnalyzingReview) {
@@ -1201,20 +1717,20 @@ onBeforeUnmount(() => {
                 }
               "
             >
-              <BarChart3 class="w-4 h-4" />
-              <span>Buka Ulasan Permainan (Analisis Putih &amp; Hitam)</span>
+              <BarChart3 class="w-4 h-4" aria-hidden="true" />
+              <span>Buka Ulasan Sokratik &amp; Simulator What-If</span>
             </button>
             <button
               type="button"
-              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-[#202321] text-[#F7F5F0] dark:bg-[#EDEAE0] dark:text-[#202321] hover:opacity-90 transition cursor-pointer"
+              class="min-h-[44px] flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-[#202321] text-[#F7F5F0] dark:bg-[#EDEAE0] dark:text-[#202321] hover:opacity-90 transition"
               @click="startNewMatch"
             >
-              <RotateCcw class="w-3.5 h-3.5" />
+              <RotateCcw class="w-3.5 h-3.5" aria-hidden="true" />
               <span>Tanding Ulang</span>
             </button>
             <button
               type="button"
-              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 hover:border-[#718675] transition cursor-pointer"
+              class="min-h-[44px] flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 hover:border-[#718675] transition"
               @click="backToSetup"
             >
               <span>Ubah Pengaturan</span>
@@ -1227,6 +1743,11 @@ onBeforeUnmount(() => {
           v-if="!matchStarted"
           class="rounded-2xl border border-[#E4DFD5] dark:border-zinc-800 bg-white dark:bg-[#19191D] p-5 space-y-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_10px_28px_-16px_rgba(32,35,33,0.12)] dark:shadow-none"
         >
+          <!-- Adaptive Lens Selector -->
+          <AdaptiveLensSwitcher
+            :model-value="activeLens"
+            @update:model-value="handleLensChange"
+          />
           <!-- 1. TIERED BOT CATALOG SELECTOR (5 Categories ala Chess.com) -->
           <div v-if="gameMode === 'bot'" class="space-y-3.5">
             <div class="flex items-center justify-between gap-2">
@@ -1245,7 +1766,7 @@ onBeforeUnmount(() => {
                 :key="group.tier"
                 type="button"
                 :aria-pressed="selectedTier === group.tier"
-                class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition active:scale-[0.97] cursor-pointer"
+                class="min-h-[44px] px-3 py-2 rounded-lg text-xs font-semibold border transition active:scale-[0.97] cursor-pointer"
                 :class="
                   selectedTier === group.tier
                     ? 'bg-[#202321] text-[#F7F5F0] border-[#202321] dark:bg-[#EDEAE0] dark:text-[#202321] dark:border-[#EDEAE0]'
@@ -1296,7 +1817,7 @@ onBeforeUnmount(() => {
                         {{ bot.name }}
                       </span>
                       <span
-                        class="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/90 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-[#E4DFD5] dark:border-zinc-700 shrink-0"
+                        class="text-[11px] font-medium px-1.5 py-0.5 rounded bg-white/90 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-[#E4DFD5] dark:border-zinc-700 shrink-0"
                       >
                         {{ bot.playstyle }}
                       </span>
@@ -1325,11 +1846,11 @@ onBeforeUnmount(() => {
                 </strong>
                 {{ activeBot.descriptionId }}
               </p>
-              <div class="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+              <div class="flex flex-wrap items-center gap-2 font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
                 <span>Kedalaman: {{ activeBot.depth }} ply</span>
-                <span>·</span>
+                <span aria-hidden="true">·</span>
                 <span>Agresivitas: {{ Math.round(activeBot.aggression * 100) }}%</span>
-                <span>·</span>
+                <span aria-hidden="true">·</span>
                 <span>{{ activeBot.useBook ? 'Buku Pembukaan Aktif' : 'Tanpa Buku' }}</span>
               </div>
             </div>
@@ -1359,15 +1880,15 @@ onBeforeUnmount(() => {
             >
               <div class="flex items-baseline justify-between gap-2">
                 <div>
-                  <span class="font-mono text-[10px] uppercase tracking-[0.14em] text-[#A4CBB3] block">
+                  <span class="text-xs font-medium text-[#A9CBB2] block">
                     {{ activeBot.playstyle }}
                   </span>
                   <div class="font-serif text-3xl font-semibold tracking-tight tabular-nums mt-0.5">
-                    {{ customElo }} <span class="font-mono text-sm font-normal text-zinc-400">ELO</span>
+                    {{ customElo }} <span class="font-mono text-sm font-normal text-zinc-300">ELO</span>
                   </div>
                 </div>
                 <span
-                  class="font-mono text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-md bg-white/10 text-zinc-200 border border-white/10"
+                  class="text-[11px] font-medium px-2.5 py-1 rounded-md bg-white/10 text-zinc-200 border border-white/10"
                 >
                   {{ activeBot.tier }}
                 </span>
@@ -1375,16 +1896,19 @@ onBeforeUnmount(() => {
 
               <!-- ELO Range Slider -->
               <div class="space-y-1.5">
+                <label for="custom-elo-slider" class="block text-xs font-medium text-zinc-200">
+                  Geser Kekuatan Mesin (250 hingga 3200 ELO)
+                </label>
                 <input
+                  id="custom-elo-slider"
                   v-model.number="customElo"
                   type="range"
                   min="250"
                   max="3200"
                   step="50"
-                  aria-label="Atur rating ELO Mesin Kustom dari 250 hingga 3200"
                   class="w-full accent-[#B85D43] cursor-pointer"
                 />
-                <div class="flex items-center justify-between font-mono text-[10px] text-zinc-400">
+                <div class="flex items-center justify-between font-mono text-[11px] text-zinc-300">
                   <span>250</span>
                   <span>1200</span>
                   <span>2200</span>
@@ -1399,10 +1923,10 @@ onBeforeUnmount(() => {
                   :key="preset"
                   type="button"
                   :aria-pressed="customElo === preset"
-                  class="py-1.5 rounded-lg font-mono text-xs font-semibold border transition active:scale-[0.97] cursor-pointer"
+                  class="min-h-[44px] py-1.5 rounded-lg font-mono text-xs font-semibold border transition active:scale-[0.97]"
                   :class="
                     customElo === preset
-                      ? 'bg-[#B85D43] text-white border-[#D9846A]'
+                      ? 'bg-[#9B452C] text-white border-[#D9846A]'
                       : 'bg-white/[0.06] text-zinc-200 border-white/10 hover:bg-white/[0.14]'
                   "
                   @click="customElo = preset"
@@ -1415,7 +1939,7 @@ onBeforeUnmount(() => {
             <!-- Engine Telemetry Breakdown -->
             <div class="grid grid-cols-3 gap-2 text-center">
               <div class="rounded-xl bg-[#F7F5F0] dark:bg-zinc-900 border border-[#E4DFD5] dark:border-zinc-800 p-2.5">
-                <span class="block font-mono text-[9px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                <span class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
                   Kedalaman
                 </span>
                 <span class="font-serif text-base font-semibold text-zinc-900 dark:text-zinc-100">
@@ -1423,15 +1947,15 @@ onBeforeUnmount(() => {
                 </span>
               </div>
               <div class="rounded-xl bg-[#F7F5F0] dark:bg-zinc-900 border border-[#E4DFD5] dark:border-zinc-800 p-2.5">
-                <span class="block font-mono text-[9px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                  Blunder Rate
+                <span class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                  Toleransi Khilaf
                 </span>
                 <span class="font-serif text-base font-semibold text-zinc-900 dark:text-zinc-100">
                   {{ Math.round(activeBot.blunderRate * 100) }}%
                 </span>
               </div>
               <div class="rounded-xl bg-[#F7F5F0] dark:bg-zinc-900 border border-[#E4DFD5] dark:border-zinc-800 p-2.5">
-                <span class="block font-mono text-[9px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                <span class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
                   Batas Waktu
                 </span>
                 <span class="font-serif text-base font-semibold text-zinc-900 dark:text-zinc-100">
@@ -1449,22 +1973,26 @@ onBeforeUnmount(() => {
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label class="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
+                <label for="pvp-white-name" class="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                   Nama Pemain Putih
                 </label>
                 <input
+                  id="pvp-white-name"
                   v-model="pvpWhiteName"
                   type="text"
+                  placeholder="Contoh: Pemain Putih"
                   class="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-[#F8F7F4] dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#5D7463]/50"
                 />
               </div>
               <div>
-                <label class="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
+                <label for="pvp-black-name" class="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                   Nama Pemain Hitam
                 </label>
                 <input
+                  id="pvp-black-name"
                   v-model="pvpBlackName"
                   type="text"
+                  placeholder="Contoh: Pemain Hitam"
                   class="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-[#F8F7F4] dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#5D7463]/50"
                 />
               </div>
@@ -1477,7 +2005,7 @@ onBeforeUnmount(() => {
                 <span class="block text-xs font-semibold text-zinc-800 dark:text-zinc-200">
                   Putar Papan Otomatis Setiap Giliran
                 </span>
-                <span class="block text-[11px] text-zinc-500 dark:text-zinc-400">
+                <span class="block text-[11px] text-zinc-600 dark:text-zinc-400">
                   Cocok saat bermain berhadap-hadapan di ponsel atau tablet.
                 </span>
               </div>
@@ -1489,12 +2017,61 @@ onBeforeUnmount(() => {
             </label>
           </div>
 
+          <!-- Humanized Bot Sparring Persona Selector -->
+          <div v-if="isVsEngine" class="space-y-2 pt-1 border-t border-[#E4DFD5]/80 dark:border-zinc-800">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                Kepribadian Sparring Lawan
+              </span>
+              <span class="text-[11px] font-medium text-[#495C4D] dark:text-[#A4BFA9]">
+                {{ activePersona.archetypeLabel }}
+              </span>
+            </div>
+
+            <div
+              role="radiogroup"
+              aria-label="Pilih kepribadian gaya bermain bot"
+              class="grid grid-cols-2 sm:grid-cols-3 gap-1.5"
+            >
+              <button
+                v-for="persona in BOT_PERSONAS"
+                :key="persona.id"
+                type="button"
+                role="radio"
+                :aria-checked="selectedPersonaId === persona.id"
+                class="min-h-[44px] px-2.5 py-2 rounded-xl border text-left transition flex flex-col justify-center"
+                :class="
+                  selectedPersonaId === persona.id
+                    ? 'bg-[#202321] text-[#F7F5F0] border-[#202321] dark:bg-[#EDEAE0] dark:text-[#202321] dark:border-[#EDEAE0] font-semibold'
+                    : 'bg-[#F8F7F4] dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 border-[#E4DFD5] dark:border-zinc-700 hover:border-[#718675]'
+                "
+                @click="selectedPersonaId = persona.id"
+              >
+                <span class="text-xs leading-tight font-semibold">{{ persona.nameId }}</span>
+                <span
+                  class="text-[10px] leading-snug mt-0.5 truncate"
+                  :class="
+                    selectedPersonaId === persona.id
+                      ? 'text-zinc-300 dark:text-zinc-700'
+                      : 'text-zinc-600 dark:text-zinc-400'
+                  "
+                >
+                  {{ persona.archetypeLabel }}
+                </span>
+              </button>
+            </div>
+
+            <p class="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+              {{ activePersona.descriptionId }}
+            </p>
+          </div>
+
           <!-- Side Preference (for both Katalog Bot & Mesin Kustom) -->
           <div v-if="isVsEngine" class="space-y-1.5">
-            <label class="block text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+            <span class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
               Main Sebagai
-            </label>
-            <div class="grid grid-cols-3 gap-2">
+            </span>
+            <div class="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Pilih warna bidak Anda">
               <button
                 v-for="opt in [
                   { key: 'w', label: 'Putih' },
@@ -1503,11 +2080,13 @@ onBeforeUnmount(() => {
                 ]"
                 :key="opt.key"
                 type="button"
-                class="py-2 rounded-xl text-xs font-semibold border transition active:scale-[0.98] cursor-pointer"
+                role="radio"
+                :aria-checked="playerSidePref === opt.key"
+                class="min-h-[44px] py-2 rounded-xl text-xs font-semibold border transition active:scale-[0.98]"
                 :class="
                   playerSidePref === opt.key
                     ? 'bg-[#202321] text-[#F7F5F0] border-[#202321] dark:bg-[#EDEAE0] dark:text-[#202321]'
-                    : 'border-[#E4DFD5] dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-[#718675]'
+                    : 'border-[#E4DFD5] dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:border-[#718675]'
                 "
                 @click="playerSidePref = opt.key as SidePreference"
               >
@@ -1518,20 +2097,22 @@ onBeforeUnmount(() => {
 
           <!-- Shared Time Control Selector -->
           <div class="space-y-1.5">
-            <label class="text-xs font-semibold text-zinc-600 dark:text-zinc-400 flex items-center gap-1.5">
-              <Clock class="w-3.5 h-3.5 text-[#5D7463]" />
+            <span class="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+              <Clock class="w-3.5 h-3.5 text-[#5D7463]" aria-hidden="true" />
               <span>Kontrol Waktu</span>
-            </label>
-            <div class="flex flex-wrap gap-1.5">
+            </span>
+            <div class="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Pilih kontrol waktu">
               <button
                 v-for="tc in TIME_CONTROLS"
                 :key="tc.id"
                 type="button"
-                class="px-3 py-1.5 rounded-lg text-xs font-medium border transition cursor-pointer"
+                role="radio"
+                :aria-checked="selectedTimeControlId === tc.id"
+                class="min-h-[44px] px-3 py-1.5 rounded-lg text-xs font-medium border transition"
                 :class="
                   selectedTimeControlId === tc.id
                     ? 'bg-[#5D7463] text-white border-[#5D7463]'
-                    : 'bg-[#F8F7F4] dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-[#738578]'
+                    : 'bg-[#F8F7F4] dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 border-zinc-200 dark:border-zinc-700 hover:border-[#738578]'
                 "
                 @click="selectedTimeControlId = tc.id"
               >
@@ -1543,14 +2124,14 @@ onBeforeUnmount(() => {
           <!-- Start CTA -->
           <button
             type="button"
-            class="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold bg-[#18181B] text-white dark:bg-[#EDEAE0] dark:text-[#18181B] hover:opacity-90 transition shadow-sm cursor-pointer"
+            class="min-h-[48px] w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold bg-[#18181B] text-white dark:bg-[#EDEAE0] dark:text-[#18181B] hover:opacity-90 transition shadow-sm"
             @click="startNewMatch"
           >
-            <Play class="w-4 h-4" />
+            <Play class="w-4 h-4" aria-hidden="true" />
             <span>
               {{
                 isVsEngine
-                  ? `Mulai Lawan ${activeBot.name} (${activeBot.elo} ELO)`
+                  ? `Mulai Sparring Lawan ${activeBot.name} (${activeBot.elo} ELO)`
                   : 'Mulai Pertandingan 2 Pemain'
               }}
             </span>
@@ -1559,13 +2140,44 @@ onBeforeUnmount(() => {
 
         <!-- LIVE MATCH CONTROLS & HISTORY (Hidden while Game Review panel is expanded) -->
         <template v-else-if="!showGameReview">
+          <!-- Live Adaptive Lens Switcher -->
+          <AdaptiveLensSwitcher
+            :model-value="activeLens"
+            compact
+            @update:model-value="handleLensChange"
+          />
+
+          <!-- Live Socratic Co-Pilot / Plan Radar Card (Apprentice & Club lenses) -->
+          <section
+            v-if="liveCoPilotBrief"
+            aria-label="Radar Panduan Posisi"
+            class="rounded-xl border border-[#718675]/45 bg-[#F2F6F3] dark:bg-[#1C241E] p-3.5 space-y-1.5"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5">
+                <Compass class="w-4 h-4 text-[#495C4D] dark:text-[#9FC0A8] shrink-0" aria-hidden="true" />
+                <span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                  {{ liveCoPilotBrief.headline }}
+                </span>
+              </div>
+              <span
+                class="text-[11px] font-semibold px-2 py-0.5 rounded bg-[#718675]/18 text-[#36493B] dark:text-[#CBE0D0]"
+              >
+                {{ liveCoPilotBrief.badgeLabel }}
+              </span>
+            </div>
+            <p class="text-xs text-zinc-700 dark:text-zinc-200 leading-relaxed">
+              {{ liveCoPilotBrief.promptText }}
+            </p>
+          </section>
+
           <!-- Match Status & Optional Evaluation Meter -->
           <div
             class="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-[#19191D] p-4 space-y-3"
           >
-            <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
               <div class="text-xs">
-                <span class="text-zinc-500 dark:text-zinc-400">Giliran Jalan: </span>
+                <span class="text-zinc-600 dark:text-zinc-400">Giliran Jalan: </span>
                 <span class="font-semibold text-zinc-900 dark:text-zinc-100">
                   {{ currentTurn === 'w' ? 'Putih' : 'Hitam' }}
                 </span>
@@ -1575,31 +2187,31 @@ onBeforeUnmount(() => {
                 <button
                   v-if="isVsEngine"
                   type="button"
-                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-[#738578] transition cursor-pointer"
+                  class="min-h-[44px] inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:border-[#738578] transition"
                   @click="showEvalMeter = !showEvalMeter"
                 >
-                  <EyeOff v-if="showEvalMeter" class="w-3 h-3" />
-                  <Eye v-else class="w-3 h-3" />
+                  <EyeOff v-if="showEvalMeter" class="w-3.5 h-3.5" aria-hidden="true" />
+                  <Eye v-else class="w-3.5 h-3.5" aria-hidden="true" />
                   <span>{{ showEvalMeter ? 'Sembunyikan Eval' : 'Tampilkan Eval' }}</span>
                 </button>
 
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-[#F8F7F4] dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 hover:border-[#738578] transition cursor-pointer"
+                  class="min-h-[44px] inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#F8F7F4] dark:bg-zinc-800 text-zinc-800 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-700 hover:border-[#738578] transition"
                   @click="backToSetup"
                 >
-                  <span>Ganti Mode / Bot</span>
+                  <span>Ganti Lawan</span>
                 </button>
               </div>
             </div>
 
             <div v-if="showEvalMeter && isVsEngine" class="pt-2 border-t border-zinc-100 dark:border-zinc-800">
               <div class="flex items-center justify-between text-xs mb-1.5">
-                <span class="text-zinc-500 dark:text-zinc-400 flex items-center gap-1">
-                  <Cpu class="w-3.5 h-3.5 text-[#5D7463]" />
-                  <span>Evaluasi Engine</span>
+                <span class="text-zinc-600 dark:text-zinc-300 flex items-center gap-1">
+                  <Cpu class="w-3.5 h-3.5 text-[#5D7463]" aria-hidden="true" />
+                  <span>Evaluasi Posisi</span>
                 </span>
-                <span class="font-mono font-semibold text-zinc-800 dark:text-zinc-200">
+                <span class="font-mono font-semibold text-zinc-900 dark:text-zinc-100">
                   {{ formatEvalLabel(liveEvalPawns) }}
                 </span>
               </div>
@@ -1616,17 +2228,17 @@ onBeforeUnmount(() => {
           <MoveHistoryPanel
             :moves="historyItems"
             :active-ply="displayedPly"
-            empty-message="Pertandingan dimulai! Gerakkan bidak Putih pertama Anda di papan."
+            empty-message="Pertandingan dimulai. Gerakkan bidak Putih pertama Anda di papan."
             @select-ply="viewingPly = $event"
           />
 
           <!-- Quick Restart button -->
           <button
             type="button"
-            class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-zinc-700 dark:text-zinc-200 hover:border-[#738578] transition cursor-pointer"
+            class="min-h-[44px] w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#19191D] text-zinc-700 dark:text-zinc-200 hover:border-[#738578] transition"
             @click="startNewMatch"
           >
-            <RotateCcw class="w-3.5 h-3.5" />
+            <RotateCcw class="w-3.5 h-3.5" aria-hidden="true" />
             <span>Mulai Ulang Pertandingan</span>
           </button>
         </template>

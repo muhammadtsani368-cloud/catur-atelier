@@ -20,20 +20,21 @@ export interface ClassificationMeta {
   symbol: string
   color: string
   textColor: string
+  lightTextColor: string
   order: number
 }
 
 export const MOVE_CLASSIFICATIONS: readonly ClassificationMeta[] = [
-  { key: 'brilliant', labelId: 'Brilian', symbol: '!!', color: '#1BACA6', textColor: '#1BACA6', order: 0 },
-  { key: 'great', labelId: 'Bagus', symbol: '!', color: '#5C8BB0', textColor: '#6EA3CC', order: 1 },
-  { key: 'book', labelId: 'Buku', symbol: 'B', color: '#A88865', textColor: '#C5A27B', order: 2 },
-  { key: 'best', labelId: 'Terbaik', symbol: '★', color: '#81B64C', textColor: '#8BC34A', order: 3 },
-  { key: 'excellent', labelId: 'Sangat Baik', symbol: '👍', color: '#96BC4B', textColor: '#9DC453', order: 4 },
-  { key: 'good', labelId: 'Baik', symbol: '✓', color: '#95B776', textColor: '#A1C482', order: 5 },
-  { key: 'inaccuracy', labelId: 'Tidak Akurat', symbol: '?!', color: '#E9B92B', textColor: '#F3C744', order: 6 },
-  { key: 'mistake', labelId: 'Kesalahan', symbol: '?', color: '#E58F2A', textColor: '#F09A36', order: 7 },
-  { key: 'miss', labelId: 'Terlewat', symbol: '✕', color: '#EE6B5B', textColor: '#F37A6B', order: 8 },
-  { key: 'blunder', labelId: 'Blunder', symbol: '??', color: '#CA3431', textColor: '#E14945', order: 9 }
+  { key: 'brilliant', labelId: 'Brilian', symbol: '!!', color: '#2B312D', textColor: '#D6E8DC', lightTextColor: '#2B312D', order: 0 },
+  { key: 'great', labelId: 'Bagus', symbol: '!', color: '#35503E', textColor: '#B8D7C1', lightTextColor: '#35503E', order: 1 },
+  { key: 'book', labelId: 'Buku', symbol: 'B', color: '#6E5228', textColor: '#DFC496', lightTextColor: '#6E5228', order: 2 },
+  { key: 'best', labelId: 'Terbaik', symbol: '**', color: '#3A5240', textColor: '#A9CBB2', lightTextColor: '#3A5240', order: 3 },
+  { key: 'excellent', labelId: 'Sangat Baik', symbol: '+', color: '#465B4C', textColor: '#BDD6C3', lightTextColor: '#465B4C', order: 4 },
+  { key: 'good', labelId: 'Baik', symbol: 'v', color: '#4E6353', textColor: '#CBE0D0', lightTextColor: '#4E6353', order: 5 },
+  { key: 'inaccuracy', labelId: 'Tidak Akurat', symbol: '?!', color: '#7A561D', textColor: '#EBC57C', lightTextColor: '#7A561D', order: 6 },
+  { key: 'mistake', labelId: 'Kesalahan', symbol: '?', color: '#944D24', textColor: '#F2B68A', lightTextColor: '#944D24', order: 7 },
+  { key: 'miss', labelId: 'Terlewat', symbol: 'x', color: '#9B452C', textColor: '#F2A68E', lightTextColor: '#9B452C', order: 8 },
+  { key: 'blunder', labelId: 'Blunder', symbol: '??', color: '#8C3325', textColor: '#F59886', lightTextColor: '#8C3325', order: 9 }
 ] as const
 
 export const CLASSIFICATION_MAP: Record<MoveClassification, ClassificationMeta> =
@@ -354,7 +355,7 @@ function buildMoveCommentId(
     case 'inaccuracy':
       return `Kurang akurat (${san}?!). ${actor} kehilangan sedikit inisiatif; ${bestSan} lebih direkomendasikan.`
     case 'mistake':
-      return `Kesalahan (${san}?). ${actor} memberi peluang balik ke lawan—pertimbangkan ${bestSan} sebagai alternatif terbaik.`
+      return `Kesalahan (${san}?). ${actor} memberi peluang balik ke lawan, pertimbangkan ${bestSan} sebagai alternatif terbaik.`
     case 'miss':
       return `Peluang terlewat (${san})! ${actor} sebenarnya punya lanjutan jauh lebih kuat dengan ${bestSan}.`
     case 'blunder':
