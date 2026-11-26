@@ -165,9 +165,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleGlobalShortcut
             <Sun v-if="isDark" class="w-4 h-4" aria-hidden="true" />
             <Moon v-else class="w-4 h-4" aria-hidden="true" />
           </button>
-
-          <!-- Google OAuth Account Button -->
-          <GoogleAuthButton />
         </div>
       </div>
 

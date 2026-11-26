@@ -4,18 +4,14 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: false },
   runtimeConfig: {
-    // Diisi murni saat runtime melalui env (jangan bake secret ke bundle build)
+    // Diisi murni saat runtime melalui env NUXT_TIDB_* atau TIDB_* (jangan bake secret ke bundle build)
     tidbHost: '',
     tidbPort: 4000,
     tidbUser: '',
     tidbPassword: '',
     tidbDatabase: 'grandmaster_atelier',
     tidbSsl: true,
-    tidbCaPath: '',
-    googleClientId: '',
-    googleClientSecret: '',
-    authSessionSecret: '',
-    appOrigin: ''
+    tidbCaPath: ''
   },
   typescript: {
     strict: true,

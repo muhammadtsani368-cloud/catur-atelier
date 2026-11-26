@@ -84,7 +84,6 @@ import {
 
 const route = useRoute()
 const { isMuted } = useTheme()
-const { user: authUser } = useAuth()
 const { activeLens, initLens, setLens } = useAdaptiveLens()
 
 type GameMode = 'bot' | 'custom' | 'pvp'
@@ -627,9 +626,8 @@ function playerDisplayInfo(color: Color) {
     const isBot = color !== humanSideInBot.value
     const personaSuffix =
       isBot && selectedPersonaId.value !== 'default' ? ` · ${activePersona.value.nameId}` : ''
-    const humanLabel = authUser.value?.name?.trim().split(/\s+/)[0] || 'Anda'
     return {
-      name: isBot ? `${activeBot.value.name}` : humanLabel,
+      name: isBot ? `${activeBot.value.name}` : 'Anda',
       badge: isBot
         ? `${activeBot.value.elo} ELO${personaSuffix}`
         : color === 'w'

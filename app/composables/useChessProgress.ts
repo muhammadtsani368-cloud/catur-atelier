@@ -391,10 +391,6 @@ export function useChessProgress() {
     return `/trainer/opening/${CURATED_OPENINGS[0]!.id}`
   }
 
-  async function refreshFromCloud() {
-    await hydrateFromCloud()
-  }
-
   return {
     progress: state,
     isHydrated: hydrated,
@@ -407,7 +403,6 @@ export function useChessProgress() {
     mistakeQueue,
     mistakeCount,
     hydrateProgress,
-    refreshFromCloud,
     recordMoveResult,
     recordMistake,
     resolveMistake,
