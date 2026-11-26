@@ -93,12 +93,23 @@ export interface PlanRadarSummary {
   rationale: string
 }
 
+export interface AdaptivePlanOption {
+  san: string
+  from: Square
+  to: Square
+  piece: PieceSymbol
+  styleTag: string
+  summaryId: string
+}
+
 export interface BoardVisionState {
   lens: AdaptiveLensId
   hangingSquares: string[]
   tensionSquares: string[]
   threatArrows: TacticalArrow[]
   planArrows: TacticalArrow[]
+  planOptions: AdaptivePlanOption[]
+  legalMoveCount: number
   planSummary: PlanRadarSummary
   showEvalByDefault: boolean
 }
@@ -201,13 +212,249 @@ function pickBestLegalMove(game: Chess, legal: Move[], filterFn?: (m: Move) => b
   return bestMove
 }
 
+function describePlanOption(mv: Move, isBeginner: boolean): { styleTag: string; summaryId: string } {
+  const pieceName = PIECE_NAME_ID[mv.piece]
+
+  if (mv.san === 'O-O' || mv.san === 'O-O-O') {
+    return {
+      styleTag: 'Rokade Aman',
+      summaryId: isBeginner
+        ? 'Amankan Raja ke sudut dan langsung aktifkan Benteng.'
+        : 'Selesaikan rokade untuk mengamankan Raja dan menghubungkan kedua Benteng.'
+    }
+  }
+  if (mv.san.includes('#')) {
+    return {
+      styleTag: 'Skakmat!',
+      summaryId: `${pieceName} ke ${mv.to} langsung menutup partai dengan skakmat.`
+    }
+  }
+  if (mv.san.includes('+')) {
+    return {
+      styleTag: 'Inisiatif Skak',
+      summaryId: isBeginner
+        ? `Serang Raja lawan langsung dengan ${pieceName} ke ${mv.to}.`
+        : `Rebut tempo melalui skak aktif ${mv.san} untuk memaksa respons lawan.`
+    }
+  }
+  if (mv.captured) {
+    const capName = PIECE_NAME_ID[mv.captured]
+    return {
+      styleTag: 'Taktis',
+      summaryId: isBeginner
+        ? `Tangkap ${capName} lawan di ${mv.to} dengan ${pieceName}.`
+        : `Konversi tekanan taktis dengan menangkap ${capName} di ${mv.to}.`
+    }
+  }
+  if (mv.piece === 'p') {
+    if (mv.to === 'e4' || mv.to === 'e5') {
+      return {
+        styleTag: 'Pusat Terbuka',
+        summaryId: isBeginner
+          ? 'Rebut pusat cepat, langsung membuka jalur Menteri dan Gajah.'
+          : 'Buka permainan taktis dengan menguasai petak pusat dan ruang diagonal.'
+      }
+    }
+    if (mv.to === 'd4' || mv.to === 'd5') {
+      return {
+        styleTag: 'Pusat Klasik',
+        summaryId: isBeginner
+          ? 'Bangun fondasi pion pusat yang kokoh dan terencana.'
+          : 'Klaim pusat secara solid untuk rencana strategis jangka menengah.'
+      }
+    }
+    if (mv.to === 'c4' || mv.to === 'c5') {
+      return {
+        styleTag: 'Sayap Strategis',
+        summaryId: isBeginner
+          ? 'Serang pusat dari samping agar bentuk permainan makin bervariasi.'
+          : 'Tekan pusat secara asimetris dari lajur c dengan rencana dinamis.'
+      }
+    }
+    if (mv.to === 'b3' || mv.to === 'g3' || mv.to === 'b6' || mv.to === 'g6') {
+      return {
+        styleTag: 'Fianchetto',
+        summaryId: isBeginner
+          ? 'Siapkan jalur diagonal panjang untuk Gajah mengintai seluruh papan.'
+          : 'Bangun struktur fianchetto untuk menekan pusat dari jarak jauh.'
+      }
+    }
+    if (mv.to === 'f4' || mv.to === 'f5') {
+      return {
+        styleTag: 'Agresif',
+        summaryId: isBeginner
+          ? 'Langsung menekan sisi Raja lawan dengan gaya menyerang berani.'
+          : 'Buka dinamika sayap Raja sejak awal dengan tekanan agresif.'
+      }
+    }
+    return {
+      styleTag: 'Struktur Pion',
+      summaryId: isBeginner
+        ? `Dorong pion ke ${mv.to} untuk membuka ruang gerak bidak lain.`
+        : `Perluas ruang dan perbaiki struktur pion lewat ${mv.san}.`
+    }
+  }
+  if (mv.piece === 'n') {
+    return {
+      styleTag: 'Kuda Fleksibel',
+      summaryId: isBeginner
+        ? `Keluarkan Kuda ke ${mv.to} untuk membantu mengawal tengah papan.`
+        : `Aktifkan Kuda ke ${mv.to} sambil menjaga fleksibilitas rencana pion.`
+    }
+  }
+  if (mv.piece === 'b') {
+    return {
+      styleTag: 'Diagonal Aktif',
+      summaryId: isBeginner
+        ? `Arahkan Gajah ke ${mv.to} untuk menguasai garis miring penting.`
+        : `Kembangkan Gajah ke ${mv.to} guna menekan diagonal vital lawan.`
+    }
+  }
+  if (mv.piece === 'r') {
+    return {
+      styleTag: 'Lajur Benteng',
+      summaryId: isBeginner
+        ? `Geser Benteng ke ${mv.to} supaya jalurnya terbuka ke barisan lawan.`
+        : `Optimalkan aktivitas Benteng pada lajur ${mv.to[0]} yang strategis.`
+    }
+  }
+  if (mv.piece === 'q') {
+    return {
+      styleTag: 'Tekanan Menteri',
+      summaryId: isBeginner
+        ? `Aktifkan Menteri ke ${mv.to} untuk menekan beberapa petak sekaligus.`
+        : `Koordinasikan Menteri ke ${mv.to} untuk meningkatkan tekanan multisektor.`
+    }
+  }
+  return {
+    styleTag: 'Raja Aktif',
+    summaryId: isBeginner
+      ? `Pindahkan Raja ke ${mv.to} agar lebih aman atau siap membantu pion.`
+      : `Reposisi Raja ke ${mv.to} demi keamanan maupun aktivitas babak akhir.`
+  }
+}
+
+/**
+ * Dynamically ranks ALL safe legal moves on ANY reachable chess position (10^120 tree)
+ * and selects up to `maxCount` strategically diverse branches (never railroading move 1 to Knights only!).
+ */
+function collectDiversePlanOptions(
+  game: Chess,
+  legal: Move[],
+  perspective: Color,
+  isBeginner: boolean,
+  variationSeed = 0,
+  maxCount = 3,
+  priorityFilter?: (m: Move) => boolean
+): AdaptivePlanOption[] {
+  if (legal.length === 0 || game.turn() !== perspective) return []
+
+  const safeLegal = legal.filter((m) => !isMoveObviouslyUnsafe(game, m))
+  const workingPool = safeLegal.length > 0 ? safeLegal : legal
+
+  const clone = new Chess(game.fen())
+  const fullMoveNum = game.moveNumber()
+  const isEarlyOpening = fullMoveNum <= 3
+
+  const scored = workingPool.map((mv) => {
+    clone.move(mv)
+    const evalWhite = evaluateBoard(clone, 0.5, true)
+    let score = perspective === 'w' ? evalWhite : -evalWhite
+    clone.undo()
+
+    if (priorityFilter && priorityFilter(mv)) score += 90
+    if (mv.san.includes('#')) score += 5000
+    if (mv.san === 'O-O' || mv.san === 'O-O-O') score += 45
+
+    // Give genuine central & flank opening pawn pushes fair, first-class footing on early moves
+    if (isEarlyOpening && mv.piece === 'p') {
+      if (mv.to === 'e4' || mv.to === 'd4' || mv.to === 'e5' || mv.to === 'd5') score += 42
+      else if (mv.to === 'c4' || mv.to === 'c5') score += 34
+      else if (mv.to === 'b3' || mv.to === 'g3' || mv.to === 'e6' || mv.to === 'c6' || mv.to === 'g6' || mv.to === 'd6') {
+        score += 24
+      } else if (mv.to === 'f4' || mv.to === 'f5') {
+        score += 18
+      }
+    }
+
+    return { move: mv, score }
+  })
+
+  scored.sort((a, b) => b.score - a.score)
+
+  // Keep sound top-tier pool (within 135 cp of best move, or at least top 8 legal moves so variety stays sound)
+  const topScore = scored[0]!.score
+  const soundBand = scored.filter((item, idx) => idx < 8 && topScore - item.score <= 135)
+  const pool = soundBand.length > 0 ? soundBand : scored.slice(0, 6)
+
+  // Apply deterministic rotation when the user clicks "Variasi Lain" (variationSeed > 0)
+  const rotated =
+    variationSeed > 0 && pool.length > 1
+      ? [
+          ...pool.slice(variationSeed % pool.length),
+          ...pool.slice(0, variationSeed % pool.length)
+        ]
+      : pool
+
+  const chosen: Move[] = []
+  const usedFromSquares = new Set<string>()
+  const usedPieceTypes = new Set<PieceSymbol>()
+
+  // Pass 1: Maximize piece-type & origin-square diversity (e.g., e4 Pawn + d4/c4 Pawn + Nf3/Bc4 Piece)
+  for (const entry of rotated) {
+    if (chosen.length >= maxCount) break
+    const mv = entry.move
+    if (usedFromSquares.has(mv.from)) continue
+    // On opening move 1-2, allow up to 2 different central/flank pawns + 1 piece so pawns & pieces shine together
+    const samePieceLimit = mv.piece === 'p' && isEarlyOpening ? 2 : 1
+    const samePieceCount = chosen.filter((c) => c.piece === mv.piece).length
+    if (samePieceCount >= samePieceLimit && usedPieceTypes.size < 2 && rotated.length >= maxCount) {
+      continue
+    }
+    chosen.push(mv)
+    usedFromSquares.add(mv.from)
+    usedPieceTypes.add(mv.piece)
+  }
+
+  // Pass 2: Fill remaining slots from distinct origin squares if available
+  for (const entry of rotated) {
+    if (chosen.length >= maxCount) break
+    if (chosen.some((c) => c.san === entry.move.san)) continue
+    if (usedFromSquares.has(entry.move.from) && rotated.length > maxCount) continue
+    chosen.push(entry.move)
+    usedFromSquares.add(entry.move.from)
+  }
+
+  // Pass 3: Absolute fallback if very few legal pieces exist (e.g., King endgame)
+  for (const entry of rotated) {
+    if (chosen.length >= maxCount) break
+    if (!chosen.some((c) => c.san === entry.move.san)) {
+      chosen.push(entry.move)
+    }
+  }
+
+  return chosen.map((mv) => {
+    const desc = describePlanOption(mv, isBeginner)
+    return {
+      san: mv.san,
+      from: mv.from,
+      to: mv.to,
+      piece: mv.piece,
+      styleTag: desc.styleTag,
+      summaryId: desc.summaryId
+    }
+  })
+}
+
 function derivePlanRadar(
   game: Chess,
   perspective: Color,
   lens: AdaptiveLensId,
-  hangingItems: Array<{ square: Square; attacker: Square; value: number }>
+  hangingItems: Array<{ square: Square; attacker: Square; value: number }>,
+  variationSeed = 0
 ): {
   summary: PlanRadarSummary
+  options: AdaptivePlanOption[]
   arrows: TacticalArrow[]
 } {
   const board = game.board()
@@ -251,9 +498,12 @@ function derivePlanRadar(
     }
   }
 
-  // Priority 1: In Check (only suggest a real legal escape/block/capture!)
+  const toArrows = (opts: AdaptivePlanOption[]): TacticalArrow[] =>
+    opts.map((o) => ({ from: o.from, to: o.to, tone: 'plan' }))
+
+  // Priority 1: In Check (only suggest real legal escapes/blocks/captures!)
   if (game.inCheck() && game.turn() === perspective) {
-    const bestEscape = pickBestLegalMove(game, legal)
+    const options = collectDiversePlanOptions(game, legal, perspective, isBeginner, variationSeed, 2)
     return {
       summary: {
         focusZone: 'safety',
@@ -265,18 +515,23 @@ function derivePlanRadar(
           ? 'Kamu wajib menyelamatkan Raja dulu: geser Raja ke petak aman, tutup jalur serang, atau makan bidak yang menyerang.'
           : 'Prioritaskan menangkis skak dengan menutup jalur serang, menangkap perwira penyerang, atau menggeser Raja ke petak aman.'
       },
-      arrows: bestEscape ? [{ from: bestEscape.from, to: bestEscape.to, tone: 'plan' }] : []
+      options,
+      arrows: toArrows(options.slice(0, 2))
     }
   }
 
-  // Priority 2: Save a genuinely hanging friendly piece (for Pemula / Menengah when it's our turn)
+  // Priority 2: Save a genuinely hanging friendly piece
   if (hangingItems.length > 0 && game.turn() === perspective) {
     const urgent = hangingItems[0]!
     const urgentPiece = game.get(urgent.square)
     const urgentName = urgentPiece ? PIECE_NAME_ID[urgentPiece.type] : 'Bidak'
-    const saveMove = pickBestLegalMove(
+    const options = collectDiversePlanOptions(
       game,
       legal,
+      perspective,
+      isBeginner,
+      variationSeed,
+      2,
       (m) => m.from === urgent.square || m.to === urgent.attacker
     )
     return {
@@ -290,22 +545,22 @@ function derivePlanRadar(
           ? `Sebelum menyerang, pindahkan ${urgentName} di ${urgent.square} ke petak yang aman atau lindungi dengan bidak lain.`
           : `Amankan ${urgentName} di ${urgent.square}, tutup jalur serang, atau cari serangan balik yang lebih kuat.`
       },
-      arrows: saveMove ? [{ from: saveMove.from, to: saveMove.to, tone: 'plan' }] : []
+      options,
+      arrows: toArrows(options.slice(0, 2))
     }
   }
 
-  // Priority 3: Endgame — ONLY draw legal passed-pawn push or legal King/piece move!
+  // Priority 3: Endgame — diverse legal passed-pawn, King activity, and piece plans
   if (nonPawnMaterial <= 14) {
-    const legalPassedPush = pickBestLegalMove(
+    const options = collectDiversePlanOptions(
       game,
       legal,
-      (m) => m.piece === 'p' && truePassedPawns.includes(m.from)
+      perspective,
+      isBeginner,
+      variationSeed,
+      3,
+      (m) => (m.piece === 'p' && truePassedPawns.includes(m.from)) || m.piece === 'k'
     )
-    const fallbackEndgameMove =
-      legalPassedPush ??
-      pickBestLegalMove(game, legal, (m) => m.piece === 'k' || Boolean(m.captured)) ??
-      pickBestLegalMove(game, legal)
-
     return {
       summary: {
         focusZone: 'endgame',
@@ -317,50 +572,58 @@ function derivePlanRadar(
           ? 'Saat bidak tinggal sedikit, Raja tidak perlu bersembunyi lagi. Gunakan Raja untuk membantu pion maju atau memakan pion lawan.'
           : 'Di babak akhir, Raja berubah menjadi perwira tempur aktif. Dekatkan Raja ke pusat papan untuk mengawal promosi pion.'
       },
-      arrows: fallbackEndgameMove
-        ? [{ from: fallbackEndgameMove.from, to: fallbackEndgameMove.to, tone: 'plan' }]
-        : []
+      options,
+      arrows: toArrows(options)
     }
   }
 
-  // Priority 4: Opening development & castling (strictly legal moves!)
+  // Priority 4: Opening freedom & development (NEVER locks move 1 to Knights only!)
   if (undevelMinors >= 2 || uncastledKingInCenter) {
-    const centerTargets = perspective === 'w' ? ['e4', 'd4'] : ['e5', 'd5']
-    const castle = legal.find((m) => m.san === 'O-O' || m.san === 'O-O-O') ?? null
-    const devMove =
-      castle ??
-      pickBestLegalMove(
-        game,
-        legal,
-        (m) => (m.piece === 'n' || m.piece === 'b') && m.from.endsWith(homeRank)
-      ) ??
-      pickBestLegalMove(game, legal, (m) => centerTargets.includes(m.to))
+    const centerTargets = perspective === 'w' ? ['e4', 'd4', 'c4'] : ['e5', 'd5', 'c5']
+    const options = collectDiversePlanOptions(
+      game,
+      legal,
+      perspective,
+      isBeginner,
+      variationSeed,
+      3,
+      (m) =>
+        m.san === 'O-O' ||
+        m.san === 'O-O-O' ||
+        centerTargets.includes(m.to) ||
+        ((m.piece === 'n' || m.piece === 'b') && m.from.endsWith(homeRank))
+    )
 
     return {
       summary: {
         focusZone: 'center',
-        zoneLabelId: isBeginner ? 'Keluarkan Bidak & Rokade' : 'Pengembangan & Rokade',
+        zoneLabelId: isBeginner ? 'Pilihan Pembukaan Bebas' : 'Ragam Jalur Pembukaan',
         headline: isBeginner
-          ? 'Keluarkan Kuda dan Gajah dulu, lalu amankan Raja dengan rokade.'
-          : `Keluarkan perwira ringan menuju pusat (${centerTargets.join('/')}) lalu amankan Raja.`,
+          ? 'Banyak cara bagus untuk memulai: dorong pion pusat, buka sayap, atau keluarkan perwira.'
+          : 'Bebas memilih gaya permainan: pusat terbuka, struktur klasik, sayap, atau pengembangan fleksibel.',
         rationale: isBeginner
-          ? 'Jangan hanya menggerakkan satu bidak bolak-balik. Ajak Kuda dan Gajah ikut bermain agar posisimu jauh lebih kuat.'
-          : 'Hindari menggerakkan perwira yang sama berulang kali sebelum Kuda dan Gajah aktif serta Raja menyelesaikan rokade.'
+          ? 'Tidak harus selalu mulai dari Kuda! Pilih panah mana saja yang cocok dengan gayamu, atau klik Variasi Lain untuk melihat ide baru.'
+          : 'Setiap posisi membuka banyak cabang sah. Bandingkan variasi pion pusat, sayap, dan pengembangan perwira sesuai rencana yang kamu inginkan.'
       },
-      arrows: devMove ? [{ from: devMove.from, to: devMove.to, tone: 'plan' }] : []
+      options,
+      arrows: toArrows(options)
     }
   }
 
-  // Priority 5: Open-file Rook move (STRICTLY verified against legal moves!)
+  // Priority 5: Open-file Rook & multi-sector middlegame plans
   const files = ['c', 'd', 'e', 'f']
   const openFile = files.find((f) => !friendlyPawnsByFile.has(f))
   if (openFile && friendlyRooks.length > 0) {
-    const legalRookToOpenFile = pickBestLegalMove(
+    const options = collectDiversePlanOptions(
       game,
       legal,
+      perspective,
+      isBeginner,
+      variationSeed,
+      3,
       (m) => m.piece === 'r' && m.to.startsWith(openFile) && !m.from.startsWith(openFile)
     )
-    if (legalRookToOpenFile) {
+    if (options.length > 0) {
       return {
         summary: {
           focusZone: openFile === 'c' ? 'queenside' : 'center',
@@ -368,38 +631,41 @@ function derivePlanRadar(
             ? `Jalur Terbuka ${openFile.toUpperCase()}`
             : `Kontrol Lajur ${openFile.toUpperCase()}`,
           headline: isBeginner
-            ? `Geser Benteng ke jalur ${openFile.toUpperCase()} yang kosong dari pionmu.`
-            : `Tempatkan Benteng di lajur ${openFile} yang terbuka untuk menekan pertahanan lawan.`,
+            ? `Kamu bisa menggeser Benteng ke jalur ${openFile.toUpperCase()} atau memilih rencana lain di papan.`
+            : `Pertimbangkan Benteng ke lajur ${openFile} terbuka bersama alternatif taktis dan manuver perwira.`,
           rationale: isBeginner
-            ? 'Benteng paling kuat saat berdiri di jalur lurus yang tidak terhalang pion sendiri.'
-            : 'Benteng bekerja paling efektif di lajur tanpa halangan pion sendiri agar bisa menyusup ke baris ketujuh atau kedelapan.'
+            ? 'Benteng paling kuat saat berdiri di jalur lurus yang tidak terhalang pion sendiri, namun tetap bebas berkreasi sesuai peluang.'
+            : 'Gabungkan kendali lajur terbuka dengan manuver perwira atau dobrakan pion untuk menciptakan tekanan ganda.'
         },
-        arrows: [{ from: legalRookToOpenFile.from, to: legalRookToOpenFile.to, tone: 'plan' }]
+        options,
+        arrows: toArrows(options)
       }
     }
   }
 
-  // Fallback: Pick best safe legal improving move so any shown arrow is 100% legal and useful
-  const bestQuiet = pickBestLegalMove(game, legal)
+  // Fallback: Rich multi-branch middlegame/maneuvering options
+  const options = collectDiversePlanOptions(game, legal, perspective, isBeginner, variationSeed, 3)
   return {
     summary: {
       focusZone: 'kingside',
-      zoneLabelId: isBeginner ? 'Rencana Berikutnya' : 'Koordinasi & Manuver',
+      zoneLabelId: isBeginner ? 'Ragam Rencana' : 'Koordinasi & Manuver',
       headline: isBeginner
-        ? 'Perbaiki posisi bidak yang masih diam di belakang.'
-        : 'Perkuat petak pusat dan cari titik lemah di sekitar perwira lawan.',
+        ? 'Pilih satu dari beberapa rencana aman di papan sesuai gaya mainmu.'
+        : 'Bandingkan beberapa cabang strategis: perbaiki perwira pasif, tekan pusat, atau siapkan dobrakan pion.',
       rationale: isBeginner
-        ? 'Pastikan semua bidak saling menjaga dan cari petak aman di tengah papan sebelum mulai menyerang.'
-        : 'Ketika posisi seimbang, tingkatkan posisi perwira yang paling pasif sebelum memulai pertukaran pion.'
+        ? 'Setiap langkah sah membuka alur baru. Klik Variasi Lain kapan saja jika ingin melihat pilihan kombinasi yang berbeda.'
+        : 'Ketika posisi seimbang, kamu bebas memilih jalur manuver posisional atau memicu komplikasi taktis sesuai preferensi.'
     },
-    arrows: bestQuiet ? [{ from: bestQuiet.from, to: bestQuiet.to, tone: 'plan' }] : []
+    options,
+    arrows: toArrows(options)
   }
 }
 
 export function analyzeBoardVision(
   fen: string,
   perspectiveColor: Color,
-  lens: AdaptiveLensId
+  lens: AdaptiveLensId,
+  variationSeed = 0
 ): BoardVisionState {
   const preset = getLensPreset(lens)
   let game: Chess
@@ -409,6 +675,9 @@ export function analyzeBoardVision(
     game = new Chess()
   }
 
+  const legalTurnMoves =
+    game.turn() === perspectiveColor ? game.moves({ verbose: true }) : []
+
   if (lens === 'master') {
     return {
       lens,
@@ -416,6 +685,8 @@ export function analyzeBoardVision(
       tensionSquares: [],
       threatArrows: [],
       planArrows: [],
+      planOptions: [],
+      legalMoveCount: legalTurnMoves.length,
       planSummary: {
         focusZone: 'center',
         zoneLabelId: 'Mode Pro',
@@ -520,11 +791,14 @@ export function analyzeBoardVision(
         .slice(0, 6)
     : []
 
-  const plan = derivePlanRadar(game, perspectiveColor, lens, hangingItems)
+  const plan = derivePlanRadar(game, perspectiveColor, lens, hangingItems, variationSeed)
 
-  // Final ironclad guard: filter planArrows to guarantee EVERY arrow is a legal move on current turn
-  const legalTurnMoves =
-    game.turn() === perspectiveColor ? game.moves({ verbose: true }) : []
+  // Final ironclad guard: filter planArrows & planOptions to guarantee EVERY suggestion is 100% legal
+  const validatedPlanOptions = preset.showPlanRadar
+    ? plan.options.filter((opt) =>
+        legalTurnMoves.some((m) => m.from === opt.from && m.to === opt.to && m.san === opt.san)
+      )
+    : []
   const validatedPlanArrows = preset.showPlanRadar
     ? plan.arrows.filter((arrow) =>
         legalTurnMoves.some((m) => m.from === arrow.from && m.to === arrow.to)
@@ -537,6 +811,8 @@ export function analyzeBoardVision(
     tensionSquares,
     threatArrows,
     planArrows: validatedPlanArrows,
+    planOptions: validatedPlanOptions,
+    legalMoveCount: legalTurnMoves.length,
     planSummary: plan.summary,
     showEvalByDefault: preset.showEvalByDefault
   }
@@ -554,7 +830,8 @@ export interface TieredHintResult {
 export function computeTieredHint(
   fen: string,
   tier: 1 | 2 | 3,
-  lens: AdaptiveLensId = 'apprentice'
+  lens: AdaptiveLensId = 'apprentice',
+  variationSeed = 0
 ): TieredHintResult {
   let game: Chess
   try {
@@ -563,9 +840,19 @@ export function computeTieredHint(
     game = new Chess()
   }
 
-  const coachProfile = buildCustomEngineBot(2500)
-  const result = computeBotMove(fen, { ...coachProfile, timeBudgetMs: 180, randomness: 0 }, [])
-  const move = result.move
+  let move: Move | null = null
+  const legal = game.moves({ verbose: true })
+  // On untouched move 1, rotate among top classical openings (e4, d4, c4, Nf3) instead of rigidly forcing Knight
+  if (game.moveNumber() === 1 && game.turn() === 'w' && legal.length === 20) {
+    const classicalFirst = ['e4', 'd4', 'c4', 'Nf3']
+    const preferredSan = classicalFirst[Math.abs(variationSeed) % classicalFirst.length]!
+    move = legal.find((m) => m.san === preferredSan) ?? null
+  }
+  if (!move) {
+    const coachProfile = buildCustomEngineBot(2500)
+    const result = computeBotMove(fen, { ...coachProfile, timeBudgetMs: 180, randomness: 0 }, [])
+    move = result.move
+  }
 
   if (!move) {
     return {

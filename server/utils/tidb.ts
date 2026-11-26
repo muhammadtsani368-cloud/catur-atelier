@@ -3,6 +3,7 @@ import path from 'node:path'
 import mysql, { type Pool, type PoolOptions } from 'mysql2/promise'
 import type { H3Event } from 'h3'
 import { getCookie, getHeader, getQuery } from 'h3'
+import { getSessionUserFromEvent } from './googleAuth'
 
 interface TiDbResolvedConfig {
   host: string
@@ -170,6 +171,17 @@ export const TIDB_SCHEMA_STATEMENTS: readonly string[] = [
     is_muted TINYINT(1) NOT NULL DEFAULT 0,
     cinematic_effects TINYINT(1) NOT NULL DEFAULT 1,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+  `CREATE TABLE IF NOT EXISTS atelier_users (
+    google_sub VARCHAR(64) NOT NULL PRIMARY KEY,
+    profile_id VARCHAR(64) NOT NULL UNIQUE,
+    email VARCHAR(255) NOT NULL,
+    name VARCHAR(180) NOT NULL,
+    avatar_url TEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_login_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_users_email (email)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
 ]
 
@@ -259,6 +271,11 @@ export function sanitizeProfileId(raw: unknown): string {
 }
 
 export function getProfileIdFromEvent(event: H3Event): string {
+  // Prioritaskan sesi Google OAuth terverifikasi agar progres sinkron lintas perangkat
+  const sessionUser = getSessionUserFromEvent(event)
+  if (sessionUser?.profileId) {
+    return sanitizeProfileId(sessionUser.profileId)
+  }
   const fromHeader = getHeader(event, 'x-atelier-profile')
   if (fromHeader) return sanitizeProfileId(fromHeader)
   const query = getQuery(event)

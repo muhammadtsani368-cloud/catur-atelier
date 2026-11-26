@@ -84,6 +84,7 @@ import {
 
 const route = useRoute()
 const { isMuted } = useTheme()
+const { user: authUser } = useAuth()
 const { activeLens, initLens, setLens } = useAdaptiveLens()
 
 type GameMode = 'bot' | 'custom' | 'pvp'
@@ -494,9 +495,29 @@ const currentTurn = computed<Color>(() => {
   }
 })
 
+const planVariationSeed = ref(0)
+const focusedPlanSan = ref<string | null>(null)
+
+watch(
+  () => boardFen.value,
+  () => {
+    planVariationSeed.value = 0
+    focusedPlanSan.value = null
+  }
+)
+
+function cyclePlanVariations() {
+  planVariationSeed.value += 1
+  focusedPlanSan.value = null
+}
+
+function toggleFocusPlanOption(san: string) {
+  focusedPlanSan.value = focusedPlanSan.value === san ? null : san
+}
+
 const liveBoardVision = computed(() => {
   const perspective: Color = isVsEngine.value ? humanSideInBot.value : currentTurn.value
-  return analyzeBoardVision(boardFen.value, perspective, activeLens.value)
+  return analyzeBoardVision(boardFen.value, perspective, activeLens.value, planVariationSeed.value)
 })
 
 const liveCoPilotBrief = computed(() => {
@@ -537,7 +558,13 @@ const boardArrows = computed<TacticalArrow[]>(() => {
     ]
   }
   if (!matchStarted.value || gameResult.value) return []
-  return [...liveBoardVision.value.threatArrows, ...liveBoardVision.value.planArrows]
+  const focusedOpt = focusedPlanSan.value
+    ? liveBoardVision.value.planOptions.find((o) => o.san === focusedPlanSan.value)
+    : null
+  const activePlanArrows: TacticalArrow[] = focusedOpt
+    ? [{ from: focusedOpt.from, to: focusedOpt.to, tone: 'plan' }]
+    : liveBoardVision.value.planArrows
+  return [...liveBoardVision.value.threatArrows, ...activePlanArrows]
 })
 
 const historyItems = computed<HistoryMoveItem[]>(() => {
@@ -600,8 +627,9 @@ function playerDisplayInfo(color: Color) {
     const isBot = color !== humanSideInBot.value
     const personaSuffix =
       isBot && selectedPersonaId.value !== 'default' ? ` · ${activePersona.value.nameId}` : ''
+    const humanLabel = authUser.value?.name?.trim().split(/\s+/)[0] || 'Anda'
     return {
-      name: isBot ? `${activeBot.value.name}` : 'Anda',
+      name: isBot ? `${activeBot.value.name}` : humanLabel,
       badge: isBot
         ? `${activeBot.value.elo} ELO${personaSuffix}`
         : color === 'w'
@@ -1149,7 +1177,7 @@ function requestHint() {
   if (!latest) return
 
   const nextTier = (hintTier.value >= maxHintTier.value ? 1 : hintTier.value + 1) as 1 | 2 | 3
-  const res = computeTieredHint(latest.fen, nextTier, activeLens.value)
+  const res = computeTieredHint(latest.fen, nextTier, activeLens.value, planVariationSeed.value)
   hintTier.value = nextTier
   activeHintResult.value = res
   hintFrom.value = res.hintFrom
@@ -2147,28 +2175,79 @@ onBeforeUnmount(() => {
             @update:model-value="handleLensChange"
           />
 
-          <!-- Live Socratic Co-Pilot / Plan Radar Card (Apprentice & Club lenses) -->
+          <!-- Live Socratic Co-Pilot / Multi-Branch Plan Radar Card (Apprentice & Club lenses) -->
           <section
             v-if="liveCoPilotBrief"
             aria-label="Radar Panduan Posisi"
-            class="rounded-xl border border-[#718675]/45 bg-[#F2F6F3] dark:bg-[#1C241E] p-3.5 space-y-1.5"
+            class="rounded-xl border border-[#718675]/45 bg-[#F2F6F3] dark:bg-[#1C241E] p-3.5 space-y-2.5"
           >
-            <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
               <div class="flex items-center gap-1.5">
                 <Compass class="w-4 h-4 text-[#495C4D] dark:text-[#9FC0A8] shrink-0" aria-hidden="true" />
                 <span class="text-xs font-bold text-zinc-900 dark:text-zinc-100">
                   {{ liveCoPilotBrief.headline }}
                 </span>
               </div>
-              <span
-                class="text-[11px] font-semibold px-2 py-0.5 rounded bg-[#718675]/18 text-[#36493B] dark:text-[#CBE0D0]"
-              >
-                {{ liveCoPilotBrief.badgeLabel }}
-              </span>
+              <div class="flex items-center gap-1.5">
+                <span
+                  v-if="liveBoardVision.legalMoveCount > 0"
+                  class="font-mono text-[10px] font-semibold px-2 py-0.5 rounded bg-white/80 dark:bg-black/30 text-[#36493B] dark:text-[#CBE0D0] border border-[#718675]/30"
+                  title="Setiap langkah sah membuka cabang kombinasi baru dari ~10^120 kemungkinan catur"
+                >
+                  {{ liveBoardVision.legalMoveCount }} cabang sah
+                </span>
+                <span
+                  class="text-[11px] font-semibold px-2 py-0.5 rounded bg-[#718675]/18 text-[#36493B] dark:text-[#CBE0D0]"
+                >
+                  {{ liveCoPilotBrief.badgeLabel }}
+                </span>
+              </div>
             </div>
             <p class="text-xs text-zinc-700 dark:text-zinc-200 leading-relaxed">
-              {{ liveCoPilotBrief.promptText }}
+              {{
+                focusedPlanSan
+                  ? liveBoardVision.planOptions.find((o) => o.san === focusedPlanSan)?.summaryId ?? liveCoPilotBrief.promptText
+                  : liveCoPilotBrief.promptText
+              }}
             </p>
+
+            <!-- Multi-Branch Plan Chips + Shuffle Variation Button -->
+            <div
+              v-if="liveBoardVision.planOptions.length > 0"
+              class="pt-2 border-t border-[#718675]/25 space-y-2"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-mono text-[10px] uppercase tracking-wider font-semibold text-[#495C4D] dark:text-[#A4CBB3]">
+                  Cabang Rencana (Klik untuk Sorot)
+                </span>
+                <button
+                  v-if="liveBoardVision.legalMoveCount > 3"
+                  type="button"
+                  class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold bg-white/80 dark:bg-zinc-900/80 border border-[#718675]/35 text-[#36493B] dark:text-[#CBE0D0] hover:bg-[#526857] hover:text-white transition cursor-pointer"
+                  @click="cyclePlanVariations"
+                >
+                  <RotateCcw class="w-3 h-3" aria-hidden="true" />
+                  <span>Variasi Lain</span>
+                </button>
+              </div>
+              <div class="flex flex-wrap gap-1.5">
+                <button
+                  v-for="opt in liveBoardVision.planOptions"
+                  :key="`${opt.from}-${opt.to}-${opt.san}`"
+                  type="button"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition cursor-pointer"
+                  :class="
+                    focusedPlanSan === opt.san
+                      ? 'bg-[#202321] text-white border-[#202321] dark:bg-[#EDEAE0] dark:text-[#202321]'
+                      : 'bg-white/85 dark:bg-zinc-900/75 text-[#202321] dark:text-zinc-100 border-[#718675]/35 hover:border-[#526857]'
+                  "
+                  @click="toggleFocusPlanOption(opt.san)"
+                >
+                  <span class="font-mono font-bold">{{ opt.san }}</span>
+                  <span class="text-[10px] opacity-75">{{ opt.styleTag }}</span>
+                </button>
+              </div>
+            </div>
           </section>
 
           <!-- Match Status & Optional Evaluation Meter -->

@@ -88,3 +88,31 @@ test('analyzeBoardVision NEVER draws an illegal blocked pawn arrow (b5 -> b6 reg
   const illegalArrow = vision.planArrows.find((a) => a.from === 'b5' && a.to === 'b6')
   assert.equal(illegalArrow, undefined, 'Must never suggest illegal blocked pawn push b5 -> b6')
 })
+
+test('analyzeBoardVision on move 1 offers diverse pawn & piece opening plans instead of forcing Knights only', () => {
+  const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+  const vision0 = analyzeBoardVision(startFen, 'w', 'apprentice', 0)
+
+  assert.equal(vision0.legalMoveCount, 20)
+  assert.equal(vision0.planOptions.length, 3, 'Should offer 3 diverse opening branches')
+  assert.ok(
+    vision0.planOptions.some((o) => o.piece === 'p'),
+    `Move 1 must include pawn openings (e4/d4/c4), got: ${vision0.planOptions.map((o) => o.san).join(', ')}`
+  )
+  assert.ok(
+    !vision0.planOptions.every((o) => o.piece === 'n'),
+    'Move 1 must NEVER be exclusively Knight moves'
+  )
+
+  // Cycling variationSeed unlocks additional sound legal openings
+  const vision1 = analyzeBoardVision(startFen, 'w', 'apprentice', 2)
+  const sans0 = vision0.planOptions.map((o) => o.san).join(',')
+  const sans1 = vision1.planOptions.map((o) => o.san).join(',')
+  assert.notEqual(sans0, sans1, 'Cycling variationSeed should rotate into different legal opening branches')
+
+  // Tiered hint on move 1 starts with a classical pawn opening by default, not forced Knight
+  const hint0 = computeTieredHint(startFen, 3, 'apprentice', 0)
+  assert.equal(hint0.bestSan, 'e4')
+  const hint1 = computeTieredHint(startFen, 3, 'apprentice', 1)
+  assert.equal(hint1.bestSan, 'd4')
+})
